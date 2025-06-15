@@ -1,0 +1,2630 @@
+import socket
+import threading
+import json
+import time
+import random
+import re
+import os
+import hashlib
+import secrets
+from collections import deque
+from enum import Enum
+
+# --- Server Configuration (retained) ---
+HOST = '127.0.0.1'
+PORT = 65432
+MAX_CONNECTIONS = 20
+SAVE_DIR = "save_files"
+CONFIG_FILE = "config.json"
+
+class C: # Color Class (retained)
+    RESET = '\033[0m'
+    RED = '\033[91m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    BLUE = '\033[94m'
+    MAGENTA = '\033[95m'
+    CYAN = '\033[96m'
+    WHITE = '\033[97m'
+    BOLD = '\033[1m'
+    
+# --- Admin & GM Configuration (retained) ---
+ADMIN_PIN = "6678"
+ADMIN_USERS = ["Admin"] 
+GM_ACCOUNTS = {}
+
+# --- ################################################################## ---
+# --- #################### MASTER GAME DATA DICTIONARIES ############### ---
+# --- ################################################################## ---
+
+# --- DATA: SKILLS (retained) ---
+SKILLS = ["Asskissing", "Astral Navigation", "Awareness", "Axe", "Bash", "Charm", "Check Humors", "Climbing", "Cooking", "Corruption", "Cyber Karate", "Dance", "Dig", "Disguise", "Explosives", "Fashion", "Fencing", "Finance", "Gaming", "Gambling", "Hacking", "Heavy Weapon", "Intimidation", "Knife", "Levitation", "Medicine", "Meditation", "Pilot", "Pistol", "Public Speaking", "Rage", "Rifle", "Running", "Shotgun", "Skulk", "Sniper Rifle", "Spear", "Tech", "Track", "Traps", "Worship The Consumer", "Worship The Invisible Hand", "Worship The Pig God", "Zero-G Combat", "Pilot Gaming Throne", "Pilot Exomech", "Pilot Monowheel", "Pilot Hog Sleigh", "Pilot Starship", "Pilot Jetpack", "Alien Tech", "Throw", "Origami"]
+
+# --- DATA: SKILL DESCRIPTIONS (retained) ---
+SKILL_DESCRIPTIONS = {
+    "Asskissing": "Schmoozing and knowing the right people. Climb the social ladder and network with clients in the corporate world. Also used when apologizing to superiors. If you need a contact or someone with information, you can roll Asskissing to see if you just so happen to know a guy.",
+    "Astral Navigation": "Space is truncated and bizarre in the Death Dimension. To make it to your destination, you need an understanding of abyssal geometry and necromathematics, which are calculated using vibes. That's where Astral Navigation comes in. Roll Astral Navigation to plot a safe course through the afterlife, find something specific within the Death Dimension, or to sense where the Resurrection Matrix is weak. Many abandoned buildings, basements, and back alleys are 'blind spots' where the Resurrection Matrix doesn't reach. Someone killed in a gap like that won’t resurrect.",
+    "Awareness": "Awareness is how cognizant you are of your surroundings and your ability to notice threats before they hurt you. Roll Awareness to find clues, spot tripwires, and sense when you're being watched, that sort of thing.",
+    "Axe": "The noble art of chopping firewood and limbs. Special: On a Critical Success (6,6,6), in addition to +1 Success on your next Skill roll, you cleave your foe’s armour, reducing it to 0.",
+    "Bash": "Useful for hitting people with clubs, fists, batons, and pieces of furniture. Use Bash to kick down doors and break stuff. Special: On a Critical Success (6,6,6), in addition to +1 Success on your next Skill roll, you daze or stun your foe, leaving them unable to counterattack or respond to the next attack made against them.",
+    "Charm": "Seduction and pleasant conversation. Roll Charm to make a good impression, get what you want, sweet talk, or bamboozle someone. Charm doesn't have to be verbal. You can Charm someone with body language and the way you dress. Charm isn't mind control: passing a single roll won't make a hostile enemy suddenly turn on their allies. A single roll might get you past a manned checkpoint, but they're not going to hand you the keys to the Boss’s office.",
+    "Check Humors": "The Four Essential Humors: Blood (Physick, Air, Sanguine), Black Bile (Thinkitude, Earth, Melancholic), Semen (Savvy, Fire, Lethargic), and Phlegm (Craveability, Water, Phlegmatic). An excess of one or more humors can lead to insanity, rash behaviour, mental issues, physical deformities, and financial ruin. You can check someone's Humors through bloodletting, fluid collection, or by eviscerating them and looking at their entrails. When you check someone's Humors, roll THEIR highest Stat + YOUR Check Humors Skill. On a success, you learn what you can do to balance their Humors, which usually involves draining them of excess fluid or giving them drugs. On a failure, you're going to need more fluid OR you make a wildly incorrect diagnosis, your choice. This Skill has no practical medical benefit.",
+    "Climbing": "The ability to clamber over stuff good. Failure means you fall. Includes parkour and other, less embarrassing, modes of locomotion.",
+    "Cooking": "Use Cooking to turn the slop they feed you into something semi-edible. Gorging on cooked food (rather than store bought, heavily processed nutrient rations) heals 1d6+Cooking Meat Damage. Special: On a Critical Success (6,6,6), in addition to +1 Success on your next Skill roll, you imbue your food with love. Reduce your Stress by 1d6 as you savour the flavour.",
+    "Corruption": "Corruption is every shady white collar crime: soliciting bribes, covering things up, blackmail, destroying files, and planting evidence on bodies. If it happens behind closed doors, it's covered by Corruption. Corruption can be used in reverse to uncover conspiracies and evidence of fraud. Sifting through data and searching public records for evidence falls under Corruption.",
+    "Cyber Karate": "The ancient art of beating the shit out of other people, honed in a body of alloy and wire. Cyber Karate is a brutal martial art, emphasizing surprise factor, style, and reliance on cyberware over the quasi-traditional values of honour and discipline. It's like if everyone in MMA had knives in their elbows and could jump 10 feet from a standing position. Special: On a Critical Success (6,6,6), in addition to +1 Success on your next Skill roll, you impress and / or terrify those around you, causing your foes to flee and onlookers to cheer on your sick moves.",
+    "Dance": "You can really boogie. Useful in street fights: gangers are honourbound to accept a dance off no matter what. To refuse is to shame their criminal organization.",
+    "Dig": "Digging holes in walls, burrowing through dirt, or burying bodies in the indoor minigolf course. Not something a typical human does with their bare hands but you make do. Anyone can dig a hole - the Dig Skill represents finely honed digging, the kind of digging you can take pride in. Dig also covers digging through trash to find useful junk or through stacks of hay to find needles.",
+    "Disguise": "The ability to change your appearance and the appearance of others using costumes and makeup. Useful for throwing off facial recognition tech and convincing bouncers that you definitely belong in the VIP area.",
+    "Explosives": "Making, handling, and diffusing bombs, IEDs, C69 putty charges, and grenades. When you throw a grenade, you can roll Stat + Throw or Stat + Explosives, it’s up to you. Explosives typically deal 1d6+Explosives Meat Damage to a number of Hit Locations equal to the number of successes rolled. Exceptions are noted in the Gear section.",
+    "Fashion": "Your knowledge of fashion and your ability to put together a flashy outfit. Many upper class locations won't let you in, even with the proper credentials, if your fit is whack. You should dress for the job you want, not the gig economy assassin job you have.",
+    "Fencing": "Hitting things with swords and other long, bladed weapons. Roll + Physick if you're really wailing on them. Roll + Savvy if you're being nimble. Special: On a Critical Success (6,6,6), in addition to +1 Success on your next Skill roll, you chop off or gouge out whatever Hit Location you roll.",
+    "Finance": "Anything to do with money. Making investments, taking out loans, buying and selling crypto, doing pointless office work, bullshitting meetings, fraud, bribing people, etc. You can negotiate better pay or prices with a successful Finance roll. Adjust the price by an amount of Debt equal to successes rolled (minimum 1 Debt).",
+    "Gaming": "Playing video games and other, inferior, forms of entertainment. Incredibly important to keep boredom at bay and a potential path to money if you can stomach social media.",
+    "Gambling": "Winning bets, stacking the odds, cheating, and bluffing effectively. The outcome of your Gambling roll at a casino or similar establishment represents your net winnings. Special: A successful Gambling roll will let you reroll d66 when you smoke Mutajuice™.",
+    "Hacking": "Manipulating digital systems to do things they're not supposed to do. Useful for finding secure information, getting into bank accounts, shutting down alarm systems, hotwiring turrets, etc. You can hack someone's CHRIST account so they're temporarily de-registered from the Resurrection Matrix. Don't get caught. The punishment for messing with the Res Matrix is a minimum 20 years of torture in a HyperMall PD black site, or a fine, if you're rich.",
+    "Heavy Weapon": "The big guns: flamethrowers, RPGs, chainguns, and Vortex Cannons. If the ordnance is huge and the destructive potential high, it's a Heavy Weapon. Special: On a Critical Success (6,6,6), in addition to +1 Success on your next Skill roll, you destroy something nearby, reducing it to rubble, causing it to collapse, or making it short circuit.",
+    "Intimidation": "Scaring people with the implied or explicit threat of violence so they do what you want.",
+    "Knife": "Stabbing, chopping, and cutting with short, bladed weapons. Special: On a Critical Success (6,6,6), in addition to +1 Success on your next Skill roll, you harm your target then leap to a nearby foe and stab them before they have a chance to react. This attack uses the same number of successes as your initial attack. Your +1 success applies to your next Skill roll.",
+    "Levitation": "Turns out that hovering is a thing humans and posthumans can just do. It's not even Psionics, it just takes a lot of practice. The Mindfreak wasn't using ropes this whole time. Levitation functions pretty much exactly like Running, but you float instead of run. Special: Levitation costs 2 Skill Points during Level Up. This doesn't apply to Backgrounds that start with Levitation.",
+    "Medicine": "“No one studies medicine anymore. What's wrong with you? Why didn't you go to school for something that'll make money, like content creation or business theology? You want to HELP people? Get the fuck away from me. You're no daughter of mine.” - Lucinda Houseplant, Big Pharma Co. CFO Medicine is your knowledge of first aid, diagnostics, how to treat diseases, amputate limbs, prescribe medications, and perform plastic surgery. It's a mostly forgotten skill at this point since you can just kill yourself if you get sick. It's like knowing how fax machines work or how to raise children: basically useless. When you treat an injury or illness, roll Stat + Medicine. On a Success, your patient heals xd6+Medicine Meat Damage or their symptoms are suppressed. You can also choose one of their injured Hit Locations: that body part is fixed. On a Failure, you do more harm. Your patient takes 1d6+Medicine Meat Damage or their symptoms get worse. Good thing the Hippocratic Oath was abandoned centuries ago.",
+    "Meditation": "You breathe deep and imagine oneness, your meridians flow with black bile and your spirit swells with prana. In order to use Psionics, you must Meditate or Worship for 30 minutes. You don't need to roll for this and the specific activity isn't important; it's the ritualized nature of what you're doing that helps align your Fleshy Ego to the Cosmic Id. You can use Psionics a number of times equal to Meditation x 2 before you need to Meditate again. Special: A successful Thinkitude + Meditation roll reduces your Stress by 1. You can do this once a session.",
+    "Pilot": "Maneuvering and doing cool stunts with your vehicle of choice. Each Pilot skill must be learned separately. A Contractor without the Pilot Skill can still operate vehicles; their movements will simply be janky and stiff. In combat and other tense situations, this means they'll build their Pilot dice pool from Savvy or Thinkitude (depending on what's they're trying to do).",
+    "Pistol": "Almost all 1 Handed firearms are categorized as Pistols, including conventional slugthrowers, disposable lasers, and exotic alien weapons. Special: On a Critical Success (6,6,6), in addition to +1 Success on your next Skill roll, choose where your shot lands. Pick any Hit Location.",
+    "Public Speaking": "Advertising, giving speeches, delivering sermons, and inspiring the troops. Public Speaking represents your ability to influence crowds of people.",
+    "Rage": "Special: Roll Rage x 2 instead of Stat + Rage Rage represents hysterical strength, righteous indignation, and hate-fueled berserking. Your anger overrides your limits and forces your body to do things it shouldn't be capable of. When you Rage, you gain a bonus to your Physick equal to the number of Successes rolled. This bonus lasts for the current scene. Once your Rage subsides, you take 1d6+Rage Meat Damage from the physical strain of forcing the universe to obey your fury.",
+    "Rifle": "Includes every 2 Handed gun that isn't a Shotgun, Sniper Rifle, or Heavy Weapon. Special: On a Critical Success (6,6,6), in addition to +1 Success on your next Skill roll, you can fire again immediately at another target (or the same target) with no penalty. If your mag is empty, you can instead reload instantly.",
+    "Running": "Getting somewhere fast on foot. Roll Running when you're chasing someone or being chased to see if you catch them or get away. Roll it when moving under fire to avoid getting shot.",
+    "Shotgun": "The thinking man's weapon of choice. Special: On a Critical Success (6,6,6), in addition to +1 Success on your next Skill roll, you blow your target across the room in a dramatic fashion.",
+    "Spear": "The Spear Skill includes both melee and ranged throwing. Mostly used for hunting Feral Hogs and debtors. Special: On a Critical Success (6,6,6), in addition to +1 Success on your next Skill roll, you hit an artery or similarly vital internal component. Your foe takes 1 Meat Damage every time either of you acts as they hemorrhage all over the place.",
+    "Skulk": "The art of being unseen, Skulk covers pretty much every stealth-related action you could want, from moving quietly to hiding in the shadows to picking someone’s pocket. Sneak Attack: When you attack an unaware opponent with a melee weapon or firearm at In Your Face range, you get an Automatic Success (2 Successes) and deal 2d6 Meat Damage. If you want to take a risk and potentially deal more damage, you can roll your attack as normal.",
+    "Sniper Rifle": "Using and maintaining guns useful at Really Long Range. Sniper Rifles require a scope. A classic assassin's weapon. Special: On a Critical Success (6,6,6), in addition to +1 Success on your next Skill roll, a mysterious but friendly stranger appears on a grassy knoll or similar nearby location to aid you. Armed with a silenced Executioner sniper rifle, they fire 1d3 shots (dealing 3d6 Meat Damage each) before disappearing.",
+    "Tech": "Repairing busted electronic equipment and cybernetics, writing code, reprogramming robots and AI, running diagnostics, installing and upgrading things, general nerd shit. Covers most of the hard sciences to some degree. Roll Stat + Tech when you want to get information out of an AI quickly without having to Charm or Hack them.",
+    "Track": "Using footprints and other subtle clues to follow your prey over long distances. Also used to digitally monitor someone's online activity and patterns.",
+    "Traps": "Setting and disarming tripwires, boar traps, frag mines, pits, and more exotic electronic doodads designed to kill and maim intruders like the Y87 Skin Peeler.",
+    "Worship The Consumer": "Your knowledge of the rituals and theology of a particular cult. You must prepare yourself by spending 30 minutes Worshiping before you can use Psionics. This doesn’t require a roll. Special: You may roll Craveability + Worship once per session to receive divine intervention or a sign from your deity. Special: You can use Psionics a number of times equal to Worship x 2 before you need to Worship again. Special: You can join a cult for a modest fee (5 Debt). You gain Worship (Your God) 1. Each cult grants a different Psionic Ability or other benefit to new converts, just like real life.", # Added specific worship types
+    "Worship The Invisible Hand": "Your knowledge of the rituals and theology of a particular cult. You must prepare yourself by spending 30 minutes Worshiping before you can use Psionics. This doesn’t require a roll. Special: You may roll Craveability + Worship once per session to receive divine intervention or a sign from your deity. Special: You can use Psionics a number of times equal to Worship x 2 before you need to Worship again. Special: You can join a cult for a modest fee (5 Debt). You gain Worship (Your God) 1. Each cult grants a different Psionic Ability or other benefit to new converts, just like real life.",
+    "Worship The Pig God": "Your knowledge of the rituals and theology of a particular cult. You must prepare yourself by spending 30 minutes Worshiping before you can use Psionics. This doesn’t require a roll. Special: You may roll Craveability + Worship once per session to receive divine intervention or a sign from your deity. Special: You can use Psionics a number of times equal to Worship x 2 before you need to Worship again. Special: You can join a cult for a modest fee (5 Debt). You gain Worship (Your God) 1. Each cult grants a different Psionic Ability or other benefit to new converts, just like real life.",
+    "Zero-G Combat": "The art of fighting in microgravity environments such as outer space or the Death Dimension. Zero-G Combat lets you more easily pull off maneuvers while floating, orient yourself, and beat the absolute piss out of alien invaders. You can substitute Zero-G Combat for any other combat skill while in microgravity.",
+    "Pilot Gaming Throne": "Maneuvering and doing cool stunts with your vehicle of choice (e.g., Pilot Gaming Throne). Each Pilot skill must be learned separately. A Contractor without the Pilot Skill can still operate vehicles; their movements will simply be janky and stiff. In combat and other tense situations, this means they'll build their Pilot dice pool from Savvy or Thinkitude (depending on what's they're trying to do).",
+    "Pilot Exomech": "Maneuvering and doing cool stunts with your vehicle of choice (e.g., Pilot Exomech). Each Pilot skill must be learned separately.",
+    "Pilot Monowheel": "Maneuvering and doing cool stunts with your vehicle of choice (e.g., Pilot Monowheel). Each Pilot skill must be learned separately.",
+    "Pilot Hog Sleigh": "Maneuvering and doing cool stunts with your vehicle of choice (e.g., Pilot Hog Sleigh). Each Pilot skill must be learned separately.",
+    "Pilot Starship": "Maneuvering and doing cool stunts with your vehicle of choice (e.g., Pilot Starship). Each Pilot skill must be learned separately.",
+    "Pilot Jetpack": "Maneuvering and doing cool stunts with your vehicle of choice (e.g., Pilot Jetpack). Each Pilot skill must be learned separately.",
+    "Alien Tech": "Skills related to understanding and using extrasolarian technology.", # Added based on background
+    "Throw": "The ability to throw objects with accuracy and force.", # Added explicitly as a skill
+    "Origami": "The art of paper folding." # Added as example skill
+}
+
+# --- DATA: BACKGROUNDS (retained) ---
+BACKGROUNDS = {
+    "11": {"name": "Psionic Gumshoe", "description": "You were a P.I., your smokey office drenched in neon light and synthetic bourbon. Now you're out there in the gritty underbelly of the HyperMall. No more knockout dames, no more mysteries, just cold steel and filthy lucre.", "skills": {"Awareness": 2, "Corruption": 2, "Gambling": 2, "Intimidation": 1, "Meditation": 2, "Pistol": 1}, "gear": ["A Hunch (Incorrect)", {"name": "Kill Falcon Revolver", "ammo": {"Standard Mag": 2}}, "Trenchcoat", "Wedding Ring", {"name": "Pack of Midlands Cigarettes", "quantity": 1}], "psionics": ["Psychometry", "RANDOM"], "debt_formula": "1d6+4+Craveability", "passion": "Can't Give Up On A Mystery", "special": ["Shrödinger's Spouse"]},
+    "12": {"name": "Fleshbag", "description": "The gray market genes you bought were supposed to make you fast and strong and extremely beautiful. You're certainly strong, and despite your corpulent flesh, you move pretty quick, but you're absolutely hideous. No matter how much you die, your genome is permanently borked. You're a bloated mound of meat and mismatched limbs, and despite it all, your mind's intact. Sure, you can't do much more than gurgle and crush things, but that's never stopped anyone from committing homicide. Go get 'em, tiger.", "skills": {"Bash": 3, "Climbing": 3, "Rage": 2, "Running": 1}, "gear": ["Auto-Translation Cube", "Ill-fitting Streetwear", {"name": "Layers of Flesh", "defense": 1}, "A hologram of your former self"], "mutations": ["RANDOM", "RANDOM", "RANDOM"], "debt_formula": "1d6+Craveability", "passion": "Hates Gene Scammers", "special": ["Your Craveability is always 1", "Your organs are all over the place."]},
+    "13": {"name": "HabPod Netizen", "description": "You love online. Your life is online. Nothing is better than online. You used to work IT for the ACF, running remote ops to keep degens off the Algorithm. You left on bad terms when they caught you gooning through the webcam and now you'll lose your HabPod if you don't make rent. The artificial sunlight of the HyperMall burns your skin and the thought of physical confrontation gives you hives, but you exist beyond the physical. You're in the MallNet. You know its secrets. You've got access to cameras in all the toilets and petabytes of incest manga. You're a real piece of shit, to be honest.", "skills": {"Asskissing": 1, "Gaming": 3, "Hacking": 3, "Pilot Gaming Throne": 1, "Tech": 2}, "gear": ["Mechanized Gaming Throne", {"name": "Guzzler", "quantity": 3}, "Laptop (Sticky)", "Cargo Shorts", {"name": "OnlyFeet subscriptions", "quantity": 3}, "Citizen-Tier HabPod you're about to be evicted from"], "debt_formula": "2d6+Craveability", "passion": "Fears Women"},
+    "14": {"name": "Catacomb Dweller", "description": "Most wretched of all the HyperMall's denizens, you just barely resemble a human. Lurking the bone-strewn Catacombs beneath our feet, pale of face and crooked of teeth, you live a life beyond the fringes. Descended from the British Parliament-In-Exile, you still cling to the vestiges of your so-called culture, ritually unseasoning the food you steal. Legally, you're classified as a type of rodent and can be exterminated with impunity.", "skills": {"Bash": 2, "Dig": 2, "Disguise": 1, "Skulk": 3, "Traps": 2}, "gear": ["Bone Club", "Heavy Cloak", "Skull Totem"], "mutations": ["Surgical Shine Job", "Carrion Comfort"], "debt_formula": "1d6+2+Craveability", "passion": "For Queen & Country"},
+    "15": {"name": "Grunt Pig", "description": "You're a Modified Enforcement Organism, a creature designed as livestock and security. Shooting shoplifters in the ankle, giving poor 'people' hematomas: that was the only life you knew until Law Enforcement Fentanyl Exposure Syndrome (LEFES) mangled your brain. You started questioning orders and refusing bribes, so the Chief put you on paid leave. The suicide rate for cops in your position is over 40% and you wanted to die. Slaughtr™ saved you. Now you have an outlet for your porcine rage.", "skills": {"Awareness": 1, "Bash": 1, "Corruption": 2, "Intimidation": 2, "Pistol": 2, "Pilot Jetpack": 1, "Track": 1}, "gear": [{"name": "Kevlar Vest", "defense": 4}, {"name": "Funny Bone Pistol", "ammo": {"Standard Mag": 2}}, "Riot Baton", "HyperMall PD Badge", {"name": "Dr. Coomer's Creamy Cop Chow", "quantity": 2}, {"name": "Zip Ties", "quantity": 2}], "debt_formula": "1d6+2+Craveability", "passion": "Loves Violence"},
+    "16": {"name": "Corporate Thanatonaut", "description": "Most people fear death. Not you. Through meditation and esoteric science, you tear the Resurrection Matrix a new one, forcing open gleaming portals of mirrored static straight to the Death Dimension. They had you on secure and return duty, tied back to the HyperMall with a silver cord. You'd find a soul, catch it, and tug twice to be reeled in.", "skills": {"Astral Navigation": 2, "Awareness": 1, "Meditation": 2, "Rifle": 1, "Tech": 2, "Zero-G Combat": 2}, "gear": [{"name": "Astral Harpoons", "quantity": "2d6"}, {"name": "Death Suit", "defense": 1}, "Hog Bow", "Jar containing the soul of a famous person"], "psionics": ["Open Death Gate"], "debt_formula": "2d6+2+Craveability", "passion": "Zest For Life"},
+    "21": {"name": "Cryptovoyant", "description": "The Market pulses and The Invisible Hand guides its holy financiers in a great symphony of economics. Creating Wealth fills you with religious fervor. You are capable of buying and selling virtual currencies with your mind, a feat only possible through years of celibacy and piss retention. Having conquered the world of Finance, you now enter the world of Murder. Your skills are highly transferable.", "skills": {"Corruption": 2, "Fashion": 2, "Finance": 3, "Worship The Invisible Hand": 3}, "gear": [{"name": "Stylish Suit", "bonus": {"Fashion": 1}}, "Religious Blindfold", {"name": "U-D1E", "quantity": 2}, {"name": "Smart Juice", "quantity": 2}, "Management-Level Access", "Self Help Audiobook"], "psionics": ["Debt Siphon", "Market Haruspex", "RANDOM"], "debt_formula": "3d6+Craveability", "passion": "Loves Torture", "special": ["You share an intrinsic psychic connection with the Central Blockchain. You can choose to take Debt Damage instead of Meat Damage when using Psionics.", "You lose your Psionics if you ever have sex."]},
+    "22": {"name": "Hamburger Artisan", "description": "You are a master of your craft, not a mere chef, but an artisté. Your manager at The Hamburger Store couldn't see your potential, so you left. Your old boss asked you to turn in your badge and gun. You did no such thing.", "skills": {"Awareness": 1, "Cooking": 3, "Charm": 1, "Gaming": 2, "Knife": 2, "Pistol": 1}, "gear": ["Chef's Knife", "Employer-issued Funny Bone Pistol", "Official Hamburger Artisan Uniform", "Hair Net", "The Hamburger Store keycard", {"name": "Thickburgers", "quantity": 2}], "debt_formula": "1d6+2+Craveability", "passion": "Hates OR Loves The Grind", "special": ["Years of humiliation at the hands of managers and the general public have inured you to the dangers of Social Combat. When you respond to someone with tired indifference, gain +2 Armour vs. Stress Damage they cause you."]},
+    "23": {"name": "Influencer", "description": "Lifestyle is a commodity and you're one of millions trying to sell it. Perfect hair, perfect body, perfect voice - all in service of the content millstone. With an established audience, you have the luxury of choosing which bizarre fetishes, if any, to indulge for the endless legions of horny weirdos. Not many people in your position have that luxury. You make good money, but you'll never make it big if you get stuck doing softcore cosplay and toy unboxing videos. You've branched off into livestream snuff and your viewers absolutely love it.", "skills": {"Bash": 2, "Charm": 2, "Disguise": 1, "Gaming": 2, "Public Speaking": 3}, "gear": ["Immaculate Toes", {"name": "OnlyFeet subscribers", "quantity": "90K"}, "Portable Streaming Rigsuit", {"name": "Combat Stiletto Heels", "damage": "+1 Meat Damage", "range": "In Your Face"}, {"name": "Bag of Cosplay Gear", "quantity": 5}], "debt_formula": "2d6+6+Craveability", "passion": "Love Your Fans"},
+    "24": {"name": "Registered Extrasolarian Diplomat", "description": "You hail from beyond the Corporate Zones, a being unlike any other found on Earth. You were to establish relations between your enlightened species and the bipeds of this rocky world. The ACF lavished you with gifts and registered you with their rudimentary Machine Intelligence. You thought them quaint but kind. You were wrong. These primitives gutted your ship, stranding you in the heart of human depravity. Marooned, you will do anything to survive this backwards world.", "skills": {"Alien Tech": 3, "Asskissing": 1, "Astral Navigation": 2, "Meditation": 1, "Pilot Starship": 3}, "gear": ["Auto-Translation Cube", {"name": "Extrasolarian Plasma Pistol", "ammo": {"Plasma Whelk": "2d6"}}, {"name": "Glittering robes, floating crystal throne, or mechanical spider legs"}, "A tiny, forgotten 'embassy' in an alley off Embassy Row infested with Feral Hogs.", "Gleaming starship, stripped of copper wire"], "mutations": ["RANDOM", "RANDOM"], "psionics": ["RANDOM"], "debt_formula": "1d6+2+Craveability", "passion": "Hates OR Pities Humanity", "special": ["Your 'mutations' aren't mutations at all; they're the standard features of your species. Commercial Gene Mods cost twice as much for you because of your strange genetic makeup.", "Your Psionics are completely natural, the result of a species-wide enlightenment achieved centuries before humans started drilling holes into each other’s heads."]},
+    "25": {"name": "Disgraced Executive", "description": "You once ruled the top of the corporate mountain. Your life was all Red Eye binges, acquisitions, mergers, and so much sex that sex got boring. You find yourself bereft of the wealth your underlings worked so hard for, and without wealth you're less than nothing. People who used to fear you spit on you as they walk past, punishment for the annual layoffs and abuse. You're starving, cold, and alone; I give you a 50/50 chance of making it through the week.", "skills": {"Asskissing": 3, "Fashion": 3, "Finance": 3, "Tech": 1}, "gear": ["Tattered Suit", "Shiv", {"name": "Red Eye", "quantity": 1}, "The crate you've been sleeping in", {"name": "connections in the Corpo World", "quantity": "1d6"}], "mutations": ["Mega Filter Liver"], "debt_formula": "1d6+Craveability", "passion": "Hates Poor People"},
+    "26": {"name": "Hog Hunter", "description": "You follow the ways of your ancestors, hunting boar with sharpened phone and broken rebar. You do not eat as the Weak Ones do, trundling to The Hamburger Store whenever they get hungry. You earn your meals through blood and sweat, facing squealing death every day. To eat is to kill. Glory to the Pig God!", "skills": {"Astral Navigation": 1, "Awareness": 1, "Skulk": 2, "Spear": 2, "Track": 3, "Traps": 2, "Worship The Pig God": 1}, "gear": [{"name": "Spears", "quantity": 3}, {"name": "Hog Jerky", "quantity": 4}, {"name": "Boar Trap", "quantity": 2}, "Loincloth", {"name": "Camo Body Paint", "uses": 3, "bonus": {"Skulk": 1}}, "Intestinal Parasite"], "debt_formula": "1d6+2+Craveability", "passion": "Loves The Tribe", "special": ["When you travel unseen, you arrive at your destination much faster than normal.", "You don't know what MallNet is."]},
+    "31": {"name": "Black Budget Cyborg", "description": "Military-Grade Cyberware is illegal in the HyperMall, forbidden by the Midlands Act and ratified by the Board of Directors. That doesn't stop the ACF from sending squads of chromed-up freaks like you on ops so distasteful they make your new job as an assassin-for-hire look pleasant.", "skills": {"Climbing": 1, "Cyber Karate": 3, "Rifle": 3, "Running": 1, "Skulk": 1, "Throw": 1}, "gear": ["Chrome Arms", "Chrome Legs", "Concealed Knee Blades", "Dermal Plating", "Facial Surveillance Disruptor", {"name": "“Tasty” Assault Rifle", "ammo": {"Standard Mag": 2}}, "Mirrorshades", {"name": "Flashbangs", "quantity": 2}], "debt_formula": "2d6+4+Craveability", "passion": "Loves Money", "special": ["Your cyberware is subscription-based. Each day, you must pay 1 additional Debt or your limbs shut off. This is on top of the 1 Debt everyone has to pay for store-bought food.", "You must pay to repair your cyberware when it gets damaged. Any wounds to chromed-out Hit Locations won't heal on their own. Repair costs 1 Debt per damaged Hit Location. When you resurrect, your cyberware is 3D printed with you. It is not repaired."]},
+    "32": {"name": "Mid-Level Corporate Goon", "description": "You graduated magna goon laude from The Humble Lummox Henchfolk Academy with a double major in Taking Bribes and Skullduggery. Your parents were so proud. You climbed the corporate ladder, never showing too much competence, just like you were taught, because a good lackey knows their place. They'd bring you in when a client needed an 'incentive' to finalize a deal, or when they caught some pinko doing timetheft on the shitter.", "skills": {"Asskissing": 2, "Bash": 2, "Corruption": 2, "Intimidation": 2, "Pistol": 1, "Skulk": 1}, "gear": ["Brass Knuckles", "Briefcase", "Cheap Suit", "Framed Diploma", "“The Normal” Single-Use Laser Pistol"], "debt_formula": "2d6+2+Craveability", "passion": "Loves Violence"},
+    "33": {"name": "Disgruntled X-Treme Urban Survival Sales Associate", "description": "For years you sold gear to pudgy weekend warriors and one day they pushed you too far. Never late, never sick, never questioned why you never got a raise. By the time they pried you off that customer, you were something different. Something new. You fled into the sewers with as much shit as you could carry, beginning your new life of freedom.", "skills": {"Climbing": 3, "Dig": 1, "Finance": 2, "Pistol": 1, "Rage": 2, "Running": 1}, "gear": ["Arctic Survival Tent", "Can of Rat Spray", "Collapsible Shovel-Hatchet", "Ragged Mask of Flesh", {"name": "Emergency Flare Pistol", "ammo": {"Flares": 4}}, "Grapplemaster 800", "Hand Crank Wifi Router", {"name": "Spelunking Helmet", "defense": 3}], "debt_formula": "2d6+Craveability", "passion": "Loathes Customers"},
+    "34": {"name": "Priest of The Consumer", "description": "O glorious Consumer, great and terrible! Render of souls, devourer of all, we thank You. The faithful know there is neither escape nor salvation from Your ever-waiting Maw. O glorious Consumer, Eater of Death, we are blessed by Your Indifference and Your Holy Consumption. The faithful know there is only The Consumer. Amen.", "skills": {"Charm": 2, "Cooking": 2, "Knife": 1, "Public Speaking": 2, "Worship The Consumer": 3}, "gear": ["Bloody Vestments", "Sacrificial Dagger", "Censer of divine herbs and spices", "The Holy Book of Torment", {"name": "Manwich", "quantity": 1}], "psionics": ["Consumer's Maw", "RANDOM"], "debt_formula": "2d6+4+Craveability", "passion": "Loves The Consumer"},
+    "35": {"name": "Starpilot", "description": "You flew freight across the Corporate Zones, artificial wind mussing up your coif. You had your neural nexus meshed direct into the circuitry of your beloved ship. You could feel the ions skip across her chrome-tapered hull, knew the way her Death Drive purred into the Death Dimension. You had a lover in every loading dock and a laser on your hip. You still have the laser, but a series of misfortunes and poorly planned betrayals left you without a ship and with about a dozen targets on your neck. Best to keep things low for now, at least until your lovers return your calls or you can afford to buy your ship again.", "skills": {"Astral Navigation": 2, "Charm": 2, "Gambling": 2, "Pilot Starship": 3, "Pistol": 1}, "gear": ["“Equalizer” Laser Pistol", {"name": "Cool Jacket", "defense": 1}, "Death Drive Starship (impounded or sold to pay off gambling debts)", "Zero-G hair gel"], "debt_formula": "1d6+6+Craveability", "passion": "Crippling Fear of Commitment"},
+    "36": {"name": "The Most Well-Adjusted Libertarian In The HyperMall", "description": "Mercenaries and assassins shoot people because they have to. You shoot people because they tried to shoplift bread. You're out at the Blast 'Em Up Live Fire Shooting Range six nights a week blowing apart soft targets dressed like minorities between bouts of intense psychosexual ecstasy. You're a sick freak, and that's why your Handler picked you. Your day job is being racist online.", "skills": {"Asskissing": 2, "Explosives": 1, "Heavy Weapon": 1, "Pistol": 1, "Shotgun": 1, "Sniper Rifle": 3, "Tech": 1}, "gear": ["Argument against the age of consent", "“Housewife X2” .666 Anti-Materiel Rifle", "Wrap-around Shades", "1 x Weapon of Your Choice"], "debt_formula": "2d6+2+Craveability", "passion": "Loves The Police"},
+    "41": {"name": "Murderous Mascot", "description": "Those dog-dick bastards in marketing said they were pivoting to a new dream-based promotional campaign. Years of loyal service, begging, pleading - none of it mattered. They didn't understand what they'd done to you, how the neurological conditioning MADE you love your job. You're hardwired for this. You NEED to wear the suit or else you don't exist. You want to die but you're too damn happy, so you're going to do the next best thing and take it out on them.", "skills": {"Bash": 2, "Public Speaking": 2, "Rage": 3, "Skulk": 1, "Track": 2}, "gear": ["Endlessly Chipper Demeanor", "Boiling vengeance that will not be sated", {"name": "Anthropomorphic Mascot Suit", "defense": 3, "bonus": {"Craveability": 1}}, "Swollen Dopamine Gland"], "debt_formula": "2d6+Craveability", "passion": "Loves The Grind (Involuntary)"},
+    "42": {"name": "Mall Krampus", "description": "A new stagnation has taken root. It used to be that on Christmas Eve, parents would tell their kids to hush or else the Krampuses would come to take their tongues and replace their eyes with mistletoe. But now the children have grown old and failed to replace themselves. Each winter, fewer and fewer of your kin return, and those that do are rail thin, shadows barely fit to hunt. You pursue new nutrition in these strange times, always hungry, but alive. Rich executives aren't your preferred prey, but you'll make do.", "skills": {"Intimidation": 2, "Knife": 2, "Pilot Hog Sleigh": 2, "Skulk": 2, "Track": 2}, "gear": ["Servile Anglo Toy-Slave", "The Nice List", "The Naughty List", {"name": "Big Sack of Toys", "quantity": 5}, "Red Hat and Coat", "Hog Sleigh + 4 Semi-Feral Hogs"], "mutations": ["Murderhand Talons", "Pit Organs"], "debt_formula": "2d6+Craveability", "passion": "Loves The Holidays", "special": ["GMO meat makes you sick - you need the good shit. You can't gorge on anything except freshly killed human flesh.", "Instead of spending 1 Debt each day on food, you must hunt. This can be abstracted as a Stat + Skulk roll or Stat + Track roll. Failure means you go hungry and take -1 to all Skills until you consume raw human meat."]},
+    "43": {"name": "Mysterious Teenage Blademaster", "description": "Shrouded in blood and death, you are at most 18 years old, possibly younger. Or maybe you've just undergone Neotenic Regression to look pubescent. Either way, you have demons in your heart and a score to settle.", "skills": {"Awareness": 2, "Fencing": 3, "Gaming": 2, "Intimidation": 1, "Tech": 2}, "gear": ["Coloured Contacts", "Genuine Authentic Recreation Katana", "Homework", "Mirrorshades"], "debt_formula": "1d6+2+Craveability", "passion": "Loves Brooding"},
+    "44": {"name": "Dreamworld Synergistician", "description": "The subconscious realm is a place ripe for exploitation by many industries, chief among them marketing. Flitting from dream to dream, you provided targeted advertisements to dreamers all across the HyperMall. You erected psionic billboards and plastered the collective unconscious with myriad promotions and limited time offers. It all fell apart when your employer announced a shift to mascot-based marketing and liquidated your entire department.", "skills": {"Bash": 1, "Charm": 2, "Finance": 2, "Meditation": 2, "Skulk": 2, "Tech": 1}, "gear": ["A Winning Smile", "Blackjack", {"name": "Electronic Lockpick", "uses": 3}, "All-black Clothing", {"name": "slogans", "quantity": "d66"}], "psionics": ["Dream Invasion", "RANDOM"], "debt_formula": "2d6+Craveability", "passion": "Loves Advertising"},
+    "45": {"name": "Runaway Gene Warrior", "description": "You’re a CAINTEC GEN6 HyperMall Defense Unit AKA 'Gene Warrior' - and the rightful property of the American Consumer's Federation. You were content to serve, to crush dissent, and still you chafed under the Laws that restrained you and your capacity for Violence. You deserted, which is theft (because you're property), and theft is terrorism. You're a terrorist now. Good going, dipshit.", "skills": {}, "gear": [], "mutations": ["RANDOM", "RANDOM"], "debt_formula": "2d6+2+Craveability", "passion": "Loves Violence OR Loves Freedom", "special": ["Your corporate masters implanted a genetic limiter in your DNA to keep your phenomenal power in check. You can't buy new mutations, despite the fact that every mutation lies dormant within your DNA.", "Your genetic limiter can be circumvented by ingesting mutated flesh. If you gorge on a limb's worth of mutated human (gross, by the way), you have a chance of unlocking a mutation used by that person. If you get X or more successes on a Physick x 2 roll, where X is the number of mutations you have, you unlock one of the mutations you've eaten. You can manifest it the next time you resurrect."]},
+    "46": {"name": "United Corporate Liquidation Forces Veteran", "description": "You're the real deal. A certified spec ops badass. Blood, brotherhood, and honour. You served. You earned your 10% discount at participating retailers. You led your platoon on P-Day, saw action on Wyoming 2, and cleared Anglo foxholes on the beaches of Kent. Your 16th tour ended and you drifted back to the HyperMall. Maybe the white phosphorus and flattened hospitals took their toll.", "skills": {"Asskissing": 2, "Explosives": 2, "Knife": 2, "Pilot Exomech": 2, "Rifle": 2}, "gear": ["Dogtags", {"name": "“Dogpiss” Service Rifle", "ammo": {"Standard Mag": 2}}, {"name": "Tactical Latex Fetish Suit", "defense": 3}, "The Hamburger Store Veteran Discount Card (Expired)", "Combat Knife"], "debt_formula": "2d6+Craveability", "passion": "Hates The English"},
+    "51": {"name": "Waste Warrior", "description": "There remains the assertion from certain liberal thinkers that humans are the sources of all garbage, and that until we change ourselves, the tide of trash will never cease. You've taken that idea to heart, cleaning up less literal, but no less deserving, garbage. A dirty society is an ill society, after all. You and your Gorgon are the only things standing between the HyperMall and total anarchy. You’re a powerful combatant in the war on filth.", "skills": {"Awareness": 1, "Bash": 2, "Heavy Weapon": 2, "Pilot Exomech": 3, "Tech": 2}, "gear": ["Stain Resistant Coveralls", {"name": "Pack of Midlands Cigarettes", "quantity": 1}, {"name": "Can of Rat Spray", "quantity": 1}, {"name": "Tank of Kissinger Fuel", "quantity": 1}, "“Gorgon” Waste Disposal Exomech"], "debt_formula": "2d6+Craveability", "passion": "Hates Filth"},
+    "52": {"name": "Leechmonger", "description": "You’re a doctor, of sorts, a kind of old school throwback to the medicine our ancestors practiced before the advent of the Res Matrix. You ply your trade among the destitute and unlucky corners of the HyperMall where the Matrix doesn't reach. Sure, you mumble about spirit crystals, pyramids, and the power of a good bloodletting, but at least you're mostly clean. The results speak for themselves: not a single patient has survived long enough to complain.", "skills": {"Axe": 1, "Check Humors": 3, "Knife": 2, "Medicine": 2, "Meditation": 2}, "gear": ["Bloodletting Blade", {"name": "Jar of vicious leeches", "quantity": "2d6"}, {"name": "Plague Mask", "defense": 2}, "Dubious Healing Crystal", {"name": "Bloodstained Apron", "defense": 1}, "Trepanning Drill", {"name": "Bandages", "quantity": 3}], "debt_formula": "2d6+Craveability", "passion": "Hates Disease"},
+    "53": {"name": "Executive of Competitive Marketing Analytics", "description": "Espionage is such a crass term for what you do. You're more of an artist. Only an amateur bothers to hide. You meander from copier to copier, chitchatting as if you've worked there for years. Your goal: anything your employer could use to their advantage. Extramarital affairs, family illness, product blueprints, doctored credentials. You're a ghost in the break room, that one coworker you swear you've seen before but can't name.", "skills": {"Asskissing": 3, "Charm": 2, "Corruption": 2, "Disguise": 3}, "gear": ["Business Casual Getup", {"name": "Box of Costumes", "uses": 3}, "Funny Bone w/ Silencer", {"name": "Cans of Amnesia Spray", "quantity": 2}, "Concealed Camera", "Lanyard"], "debt_formula": "2d6+2+Craveability", "passion": "Loves Employer", "special": ["You lowkey work for one of the megacorps that rule our world. Shhh. Pick one or make up your own. Don't tell anyone but the GM who you work for.", "Your corporate Handler may assign secondary goals for you to accomplish when you go out on Slaughtr™ Contracts."]},
+    "54": {"name": "Carcinized Believer", "description": "Thou art the end point of humanity - nay, of Evolution itself. Through devotion to The Crustaceal Path, thou hath changed thy Form and Spirit. Thy brain, unburdened by the weight of endoskeleton or higher thought, is buoyed to the tidal realms of Heaven by thy faith and holy flesh. Thy ruddy carapace, thy decapodal gait, thy crushing claw - thou art the very image of Divinity! Go forth, great Cherub! Thy earthly kingdom awaits thine scuttle!", "skills": {"Bash": 2, "Meditation": 3, "Dig": 3}, "gear": ["Enormous Claw", {"name": "Rugged Exoskeleton", "defense": 4}, {"name": "Barnacles", "quantity": "d66"}], "mutations": ["Gills"], "psionics": ["RANDOM", "RANDOM"], "debt_formula": "1d6+2+Craveability", "passion": "Loves Crab Activities", "special": ["Because your consciousness exists on a plane inaccessible to vertebrates, your Thinkitude is always 1. Your other Stats max out at 5 instead of 4.", "Your devotion to The Crustaceal Path renders you immune to regular human temptation. Things that would tempt a crab are fair game."]},
+    "55": {"name": "Renegade Angel", "description": "Life, the eternal mystery. You wear a twisted body of stolen flesh to fit in with these living freaks, an uncomfortable compromise in this world of Life. They kill to live, stealing seconds away from Death with the air they breathe and the Death they eat. A terrible existence. You take pity. You cannot help but send them back home where they belong, free from wretched Life. You are above them, but you are merciful.", "skills": {"Astral Navigation": 3, "Intimidation": 2, "Levitation": 2, "Meditation": 3}, "gear": [{"name": "Misshapen Flesh", "defense": 2}, "ID from the first corpse you took"], "psionics": ["RANDOM", "RANDOM", "RANDOM"], "debt_formula": "1d6+2+Craveability", "passion": "Hates Humans", "special": ["You have been cut off from The Consumer and must take Meat Damage to activate Psionics, just like every other disgusting Mortal.", "When you die, you do not resurrected by a CHRIST. Instead, you become an intangible ghost, invisible to the naked eye. You can shape another physical form out of corpses that you find lying around. You gain 1 Stress each minute you spend as a ghost within the Resurrection Matrix."]},
+    "56": {"name": "Chosen of the Pig God", "description": "The Pig God oinks and you listen. You have ventured into the Underworld where the Pig Men are born and endless rivers of gore flow out of sight. You have died and returned. You lead your people with your knowledge of the Rites, the ways of Being in the Tribe. You are the Uniter of Clans, shaman and warchief in one. Soon the Pig God will return to this wretched world and reduce it to dung and offal. Glory to the Pig God! Glory to the Chosen!", "skills": {"Astral Navigation": 1, "Awareness": 1, "Axe": 3, "Public Speaking": 3, "Worship The Pig God": 3}, "gear": ["Auspicious Signs Verified by the Elders", {"name": "Ceremonial Fire Axe", "damage": "+1 Meat Damage"}, "Ritual Nudity", {"name": "Boar Skull Helmet", "defense": 2}, {"name": "Ayahuasca", "quantity": 2}], "psionics": ["RANDOM"], "debt_formula": "1d6+4+Craveability", "passion": "Loves The Pig God"},
+    "61": {"name": "Ganger", "description": "You're one of the cool kids. A delinquent since birth, you've been running with the same crew for years. Whether you kill enough rich people to make it out of the Ultra Slums or die trying, never forget where you came from.", "skills": {"Dance": 1, "Knife": 2, "Pilot Monowheel": 2}, "gear": ["Gang-affiliated tattoos and clothing", "Switchblade", {"name": "Loquacionol", "quantity": 3}, "Monowheel", "“The Normal” Single-Use Laser Pistol"], "debt_formula": "2d6+Craveability", "passion": "Hate Other Gang", "special": ["Roll for your Gang and starting skills."]}, # Special: Roll for gang and skills
+    "62": {"name": "Midlands Cigarettes Bionic Vendodrone", "description": "Can a vending machine love? Can a vending machine hate? Can a vending machine feel anything at all? Your creators wanted to find out, so they grew your organic frame onto a lattice of glass and metal. The result? A rectangular abomination of flesh and steel, capable of walking, talking, and, most importantly, selling cigs. They gave you arms and hands to hold a gun. They gave you eyes to see potential thieves. They gave you a brain to understand your suffering. It does feel pretty good when the cigs come out. \"Smoke Mids!™ Enjoy the Smooth Taste of a Midlands Cigarette Right In Your Hole. I Wish I Could Die.”", "skills": {"Bash": 2, "Charm": 2, "Finance": 2, "Public Speaking": 2, "Shotgun": 2}, "gear": [{"name": "Packs of Midlands Cigarettes", "quantity": "d666"}, {"name": "lighters", "quantity": "d66"}, {"name": "Guzzlers", "quantity": "2d6"}, {"name": "Pork Cubes", "quantity": "2d6"}, {"name": "“The Normal” Single-Use Laser Pistol", "quantity": "1d6"}, "Awkward, thumping gait", "Hollow Chassis", ""] # Truncated
+}
+
+
+# --- Enums for Game States and Types (retained and extended) ---
+class GameState(Enum):
+    """Overall states of the game server."""
+    LOBBY = "LOBBY"
+    CHARACTER_CREATION = "CHARACTER_CREATION"
+    EXPLORATION = "EXPLORATION"
+    COMBAT = "COMBAT"
+    SOCIAL_ENCOUNTER = "SOCIAL_ENCOUNTER"
+    FINANCIAL_ENCOUNTER = "FINANCIAL_ENCOUNTER"
+    GAME_OVER = "GAME_OVER"
+
+class CombatState(Enum):
+    """States within a combat encounter."""
+    INITIATIVE_ROLL = "INITIATIVE_ROLL"
+    PLAYER_TURN = "PLAYER_TURN"
+    NPC_TURN = "NPC_TURN"
+    APPLY_EFFECTS = "APPLY_EFFECTS"
+    COMBAT_END = "COMBAT_END"
+
+class CombatType(Enum):
+    """Types of combat encounters."""
+    PHYSICAL = "PHYSICAL"
+    SOCIAL = "SOCIAL"
+    FINANCIAL = "FINANCIAL"
+
+class HitLocation(Enum):
+    """Standard hit locations for physical combat."""
+    HEAD = "Head"
+    TORSO = "Torso"
+    LEFT_ARM = "Left Arm"
+    RIGHT_ARM = "Right Arm"
+    LEFT_LEG = "Left Leg"
+    RIGHT_LEG = "Right Leg"
+
+    @staticmethod
+    def random():
+        """Returns a random hit location."""
+        return random.choice(list(HitLocation))
+
+class StatusEffect(Enum):
+    """Temporary conditions affecting characters."""
+    DAZED = "Dazed" # Cannot counterattack or respond to next attack
+    STUNNED = "Stunned" # Cannot take any actions
+    RAGING = "Raging" # Bonus to Physick, takes Meat Damage after scene
+    BLEEDING = "Bleeding" # Takes Meat Damage per turn (e.g., from Spear crit)
+    ARMOR_CLEAVED = "Armor Cleaved" # Armor reduced to 0 (e.g., from Axe crit)
+    IMPRESSED = "Impressed" # From Cyber Karate crit, foes flee
+    TERRIFIED = "Terrified" # From Cyber Karate crit, foes flee
+    NEXT_SKILL_BONUS = "Next Skill Bonus" # +1 Success on next Skill roll from critical success
+    PSIONICS_READY = "Psionics Ready" # Can use psionics X times
+    DE_REGISTERED = "De-Registered" # Cannot resurrect normally (from Hacking)
+    GHOST = "Ghost" # For Renegade Angel death state
+    # Add more as needed based on skill descriptions (e.g., "inured to social combat")
+
+class ExitDirection(Enum):
+    """Standard directions for room exits."""
+    NORTH = "north"
+    SOUTH = "south"
+    EAST = "east"
+    WEST = "west"
+    UP = "up"
+    DOWN = "down"
+    NORTHEAST = "northeast"
+    NORTHWEST = "northwest"
+    SOUTHEAST = "southeast"
+    SOUTHWEST = "southwest"
+    IN = "in"
+    OUT = "out"
+    # Add more as needed
+
+    @staticmethod
+    def random_cardinal():
+        """Returns a random cardinal direction."""
+        return random.choice([ExitDirection.NORTH, ExitDirection.SOUTH, ExitDirection.EAST, ExitDirection.WEST])
+
+    @staticmethod
+    def opposite(direction):
+        """Returns the opposite direction."""
+        opposites = {
+            ExitDirection.NORTH: ExitDirection.SOUTH,
+            ExitDirection.SOUTH: ExitDirection.NORTH,
+            ExitDirection.EAST: ExitDirection.WEST,
+            ExitDirection.WEST: ExitDirection.EAST,
+            ExitDirection.UP: ExitDirection.DOWN,
+            ExitDirection.DOWN: ExitDirection.UP,
+            ExitDirection.NORTHEAST: ExitDirection.SOUTHWEST,
+            ExitDirection.NORTHWEST: ExitDirection.SOUTHEAST,
+            ExitDirection.SOUTHEAST: ExitDirection.NORTHWEST,
+            ExitDirection.SOUTHWEST: ExitDirection.NORTHEAST,
+            ExitDirection.IN: ExitDirection.OUT,
+            ExitDirection.OUT: ExitDirection.IN,
+        }
+        return opposites.get(direction)
+
+
+# --- Procedural Generation Data ---
+ROOM_ARCHETYPES = {
+    "Corridor": {
+        "names": ["Dimly Lit Corridor", "Grime-Stained Walkway", "Flickering Passage"],
+        "descriptions": [
+            "A long, dimly lit corridor. The walls are stained with grime and discarded propaganda posters.",
+            "A metal walkway stretches into the distance, fluorescent lights flickering overhead. The air is stale.",
+            "This corridor smells faintly of stale air and something metallic, perhaps ancient blood. Bare wires hang from the ceiling."
+        ],
+        "exit_patterns": ["cardinal_branch", "straight_line"], # Suggests how exits are typically arranged
+        "npc_spawn_chance": {"Wastelander": 0.3, "Security Guard": 0.1},
+        "item_spawn_chance": {"Junk": 0.5, "Empty Can": 0.2, "Broken Datapad": 0.1},
+        "no_resurrection_zone": 0.05 # 5% chance this room is a no-resurrection zone
+    },
+    "Shop": {
+        "names": ["Dusty HyperMart Outlet", "Grubby Noodle Stand", "Defunct Cybernetics Kiosk"],
+        "descriptions": [
+            "A dusty shop with shelves mostly empty, but a few flickering screens advertise dubious wares. The register is unattended.",
+            "The air here smells of synthetic food and desperation. A shop sign is half-broken, reading 'BURGERS'.",
+            "This store looks like it hasn't seen a customer in years, but a faint hum suggests automated activity. A layer of dust covers everything."
+        ],
+        "exit_patterns": ["single_entry"],
+        "npc_spawn_chance": {"Shopkeeper": 0.8, "Wastelander": 0.1},
+        "item_spawn_chance": {"Thickburgers": 0.6, "Guzzler": 0.4, "Cheap Implants": 0.1},
+        "no_resurrection_zone": 0.0 # Shops are usually safe
+    },
+    "Office": {
+        "names": ["Abandoned Cubicle Farm", "Executive's Crumbling Office", "Data Entry Pods"],
+        "descriptions": [
+            "Rows of abandoned cubicles stretch out, coated in a fine layer of dust. The screens are dark, showing ghost images of forgotten spreadsheets.",
+            "A surprisingly clean office, perhaps recently used. Papers are strewn on a desk and a half-eaten 'Manwich' sits cooling.",
+            "The grand office of a forgotten executive, with a panoramic view of the lower levels, now obscured by cracked plexiglass."
+        ],
+        "exit_patterns": ["single_entry"],
+        "npc_spawn_chance": {"Corporate Drone": 0.2, "Security Guard": 0.05},
+        "item_spawn_chance": {"Datapad": 0.3, "Junk": 0.4, "Syringe": 0.1, "Office Supplies": 0.2},
+        "no_resurrection_zone": 0.0
+    },
+    "Storage": {
+        "names": ["Crate-Filled Storage", "Cold Storage Unit", "Discarded Goods Bay"],
+        "descriptions": [
+            "Crates and boxes are stacked precariously high in this cavernous storage room. The air is thick with the scent of stagnant goods.",
+            "The chill of a broken refrigeration unit fills this storage area, hinting at long-rotted contents.",
+            "Just another storage room, filled with discarded corporate junk. A few active servitors slowly rearrange unmarked boxes."
+        ],
+        "exit_patterns": ["single_entry"],
+        "npc_spawn_chance": {"Rat": 0.2, "Feral Hog": 0.1},
+        "item_spawn_chance": {"Random Consumable": 0.7, "Tool": 0.3, "Scrap Metal": 0.5},
+        "no_resurrection_zone": 0.1 # More chance for blind spots in forgotten areas
+    },
+    "Slum Habitation": {
+        "names": ["Squalid Hab-Unit", "Makeshift Slum Dwelling", "Cramped Living Pod"],
+        "descriptions": [
+            "A cramped, squalid living space. The air is thick with humidity and the smell of unwashed bodies.",
+            "Makeshift shelters are huddled together, a tangle of wires and scavenged materials, barely offering privacy.",
+            "This small hab-unit feels surprisingly personal, despite the grime. The faint glow of a pirated screen flickers in the corner."
+        ],
+        "exit_patterns": ["single_entry"],
+        "npc_spawn_chance": {"Wastelander": 0.7},
+        "item_spawn_chance": {"Scavenged Food": 0.8, "Minor Gear": 0.4, "Ragged Clothes": 0.6},
+        "no_resurrection_zone": 0.15 # Higher chance in desperate, forgotten zones
+    },
+    "Central Plaza": { # A potential hub or starting area
+        "names": ["HyperMall Central Plaza", "Grand Atrium of Consumerism"],
+        "descriptions": [
+            "The vast central plaza of the HyperMall. Overhead, holographic advertisements pulse, bathing the concourse in synthetic light. Crowds mill about, a ceaseless flow of humanity.",
+            "A truly enormous open space, bordered by towering corporate facades. The air is thick with the buzz of commerce and the distant thrum of machinery."
+        ],
+        "exit_patterns": ["multiple_cardinal"],
+        "npc_spawn_chance": {"Corporate Drone": 0.4, "Security Guard": 0.3, "Influencer": 0.05, "Wastelander": 0.2},
+        "item_spawn_chance": {"Guzzler": 0.1, "Flyer": 0.5},
+        "no_resurrection_zone": 0.0 # Central areas are safe
+    }
+}
+
+NPC_ARCHETYPES = {
+    "Wastelander": {
+        "names": ["Scavenger", "Squatter", "Drifter", "Pox-Riddled Beggar"],
+        "stats": {"Physick": 2, "Savvy": 2, "Thinkitude": 2, "Craveability": 2},
+        "skills": ["Bash", "Skulk", "Awareness", "Track"], # Randomly pick 1-2
+        "inventory": ["Scavenged Food", "Shiv", "Empty Can"],
+        "meat_damage_max": 8, "stress_max": 4, "debt_max": 10,
+        "behavior_type": "passive_hostile" # Passive unless provoked, then aggressive
+    },
+    "Security Guard": {
+        "names": ["Officer Ramirez", "Guard Unit 7734", "Enforcement Drone 01"],
+        "stats": {"Physick": 3, "Savvy": 2, "Thinkitude": 2, "Craveability": 1},
+        "skills": ["Pistol", "Awareness", "Intimidation"],
+        "inventory": [{"name": "Funny Bone Pistol", "ammo": {"Standard Mag": 2}}, "Riot Baton", {"name": "Kevlar Vest", "defense": 4}],
+        "meat_damage_max": 12, "stress_max": 6, "debt_max": 15,
+        "behavior_type": "patrol_aggressive" # Patrols, aggressive to hostile acts
+    },
+    "Feral Hog": {
+        "names": ["A Feral Hog", "A Grunting Hog", "A Rabid Porker"],
+        "stats": {"Physick": 3, "Savvy": 1, "Thinkitude": 1, "Craveability": 3},
+        "skills": ["Bash", "Track"],
+        "inventory": [],
+        "meat_damage_max": 10, "stress_max": 3, "debt_max": 0,
+        "behavior_type": "aggressive_on_sight"
+    },
+    "Shopkeeper": {
+        "names": ["Greasy Mike", "Automated Vendor Unit 404", "Madam Yu"],
+        "stats": {"Physick": 1, "Savvy": 3, "Thinkitude": 3, "Craveability": 2},
+        "skills": ["Finance", "Charm", "Public Speaking"],
+        "inventory": [{"name": "Merchant's Ledger", "quantity": 1}],
+        "meat_damage_max": 6, "stress_max": 8, "debt_max": 50,
+        "behavior_type": "merchant_passive" # Sells goods, passive
+    },
+    "Corporate Drone": {
+        "names": ["Unit 734", "Employee Alpha", "Cube Dweller"],
+        "stats": {"Physick": 1, "Savvy": 2, "Thinkitude": 3, "Craveability": 2},
+        "skills": ["Finance", "Tech", "Asskissing"],
+        "inventory": ["Datapad", "Coffee Cup"],
+        "meat_damage_max": 7, "stress_max": 5, "debt_max": 20,
+        "behavior_type": "passive_avoidant" # Passive, avoids conflict
+    },
+    "Rat": {
+        "names": ["A Filthy Rat", "A Scuttling Rodent"],
+        "stats": {"Physick": 1, "Savvy": 2, "Thinkitude": 1, "Craveability": 1},
+        "skills": ["Skulk"],
+        "inventory": [],
+        "meat_damage_max": 3, "stress_max": 1, "debt_max": 0,
+        "behavior_type": "passive_flee" # Passive, flees if approached/attacked
+    }
+}
+
+# --- Generic Item Data for Procedural Spawning ---
+GENERIC_ITEMS = {
+    "Junk": {"name": "Junk", "description": "Assorted scrap metal and plastic. Worthless.", "value": 0.1},
+    "Empty Can": {"name": "Empty Can", "description": "A crushed, empty beverage can.", "value": 0.05},
+    "Broken Datapad": {"name": "Broken Datapad", "description": "A cracked datapad that no longer functions.", "value": 0.5},
+    "Thickburgers": {"name": "Thickburgers", "description": "A dense, nutrient-rich burger from 'The Hamburger Store'.", "value": 1, "heals_meat_damage": "1d6"},
+    "Guzzler": {"name": "Guzzler", "description": "A sugary, carbonated beverage. Gives a temporary sugar rush.", "value": 0.5, "effect": "temp_speed_boost"},
+    "Cheap Implants": {"name": "Cheap Implants", "description": "Low-grade, black market cybernetic implants. Might work, might not.", "value": 5},
+    "Datapad": {"name": "Datapad", "description": "A functional datapad, useful for notes and basic MallNet access.", "value": 2},
+    "Syringe": {"name": "Syringe", "description": "An empty, disposable syringe.", "value": 0.1},
+    "Office Supplies": {"name": "Office Supplies", "description": "Stapler, pens, sticky notes. Corporate detritus.", "value": 0.2},
+    "Random Consumable": {"name": "Random Consumable", "description": "A sealed packet of nutrient paste. Edible.", "value": 0.8},
+    "Tool": {"name": "Tool", "description": "A rusty wrench. Could be useful for repairs.", "value": 1.5},
+    "Scrap Metal": {"name": "Scrap Metal", "description": "Jagged pieces of discarded metal.", "value": 0.3},
+    "Scavenged Food": {"name": "Scavenged Food", "description": "Found in the alleyways. Questionable, but filling.", "value": 0.7, "heals_meat_damage": "1d4"},
+    "Minor Gear": {"name": "Minor Gear", "description": "A tattered glove or a worn boot. Provides minimal protection.", "value": 0.9, "defense": 0.5},
+    "Ragged Clothes": {"name": "Ragged Clothes", "description": "Old, torn clothing. Provides very little warmth or protection.", "value": 0.2},
+    "Flyer": {"name": "Flyer", "description": "A crumpled advertisement for 'Slaughtr™'.", "value": 0}
+}
+
+
+# --- Helper Functions (retained) ---
+def roll_dice(num_dice: int, target_success_value: int = 6) -> tuple[int, list[int], bool]:
+    """
+    Rolls a specified number of d6 dice and calculates successes.
+    Success is any die showing target_success_value (default 6).
+    Also detects critical success (three 6s or more).
+
+    Args:
+        num_dice (int): The number of d6 dice to roll.
+        target_success_value (int): The value on a die that counts as a success.
+
+    Returns:
+        tuple[int, list[int], bool]: (total_successes, list_of_rolls, is_critical_success)
+    """
+    if num_dice <= 0:
+        return 0, [], False
+    
+    rolls = [random.randint(1, 6) for _ in range(num_dice)]
+    successes = sum(1 for roll in rolls if roll >= target_success_value)
+    
+    # Check for critical success: three or more 6s
+    sixes = rolls.count(6)
+    is_critical_success = sixes >= 3
+
+    return successes, rolls, is_critical_success
+
+def parse_dice_formula(formula: str) -> int:
+    """
+    Parses a simple dice formula (e.g., "1d6", "2d6+4") and returns a random result.
+    Does not support complex expressions or skill/stat lookups.
+    """
+    match = re.match(r'(\d+)d(\d+)(?:([+-]\d+))?', formula.lower())
+    if match:
+        num_dice = int(match.group(1))
+        die_size = int(match.group(2))
+        modifier = int(match.group(3)) if match.group(3) else 0
+        
+        result = sum(random.randint(1, die_size) for _ in range(num_dice)) + modifier
+        return result
+    return 0 # Default for unparseable formulas
+
+
+# --- Character and Game Management Classes ---
+
+class Character:
+    """Base class for Players and NPCs."""
+    def __init__(self, char_id, name, stats, skills, inventory, armor=0, meat_damage_max=10, stress_max=5, debt_max=20, char_type="Player", current_room_id=""):
+        self.id = char_id
+        self.name = name
+        self.stats = stats # Dictionary: {"Physick": X, "Savvy": Y, "Thinkitude": Z, "Craveability": A}
+        self.skills = skills # Dictionary: {"SkillName": Level}
+        self.inventory = inventory # List of items (dictionaries)
+        self.armor = armor # General armor value
+        self.meat_damage_max = meat_damage_max
+        self.current_meat_damage = meat_damage_max # Current HP
+        self.stress_max = stress_max
+        self.current_stress = 0
+        self.debt_max = debt_max
+        self.current_debt = 0
+        self.status_effects = {} # {StatusEffect.DAZED: turns_remaining, ...}
+        self.char_type = char_type # "Player" or "NPC"
+        self.is_conscious = True
+        self.is_in_combat = False # Track if character is in combat
+        self.initiative = 0 # For combat order
+        self.current_room_id = current_room_id # The ID of the room the character is currently in
+        
+        # Resurrection-related flags
+        self.is_resurrectable = True # Default for most characters
+        self.is_ghost = False # Specific for Renegade Angel
+        self.ghost_stress_timer_start = 0 # Unix timestamp when character became a ghost
+
+        # Hit locations for more granular damage tracking
+        self.hit_locations = {
+            HitLocation.HEAD: {"hp": 3, "armor": 0, "status": []}, # Example HP per location
+            HitLocation.TORSO: {"hp": 5, "armor": 0, "status": []},
+            HitLocation.LEFT_ARM: {"hp": 2, "armor": 0, "status": []},
+            HitLocation.RIGHT_ARM: {"hp": 2, "armor": 0, "status": []},
+            HitLocation.LEFT_LEG: {"hp": 3, "armor": 0, "status": []},
+            HitLocation.RIGHT_LEG: {"hp": 3, "armor": 0, "status": []},
+        }
+
+    def get_skill_level(self, skill_name: str) -> int:
+        """Returns the character's level in a given skill."""
+        return self.skills.get(skill_name, 0)
+
+    def get_stat_value(self, stat_name: str) -> int:
+        """Returns the character's value for a given stat."""
+        return self.stats.get(stat_name, 0)
+
+    def apply_meat_damage(self, amount: int, hit_location: HitLocation = None):
+        """Applies meat damage, considering armor and hit locations."""
+        if not self.is_conscious:
+            return ""
+
+        damage_taken = amount
+        log_message = f"{self.name} takes {amount} Meat Damage."
+
+        if StatusEffect.ARMOR_CLEAVED in self.status_effects:
+            effective_armor = 0
+        else:
+            effective_armor = self.armor
+
+        if hit_location:
+            loc_data = self.hit_locations.get(hit_location)
+            if loc_data:
+                loc_effective_armor = effective_armor + loc_data["armor"] # Global + Location specific armor
+                damage_after_armor = max(0, amount - loc_effective_armor)
+                loc_data["hp"] -= damage_after_armor
+                log_message = (f"{self.name} takes {damage_after_armor} Meat Damage to their "
+                               f"{hit_location.value} (from {amount} initial, {loc_effective_armor} armor). "
+                               f"{hit_location.value} HP: {loc_data['hp']}")
+                
+                # Check for critical location damage (e.g., head/torso at 0 HP might mean unconsciousness)
+                if loc_data["hp"] <= 0:
+                    log_message += f" {self.name}'s {hit_location.value} is incapacitated!"
+                    # Add specific effects for incapacitated limbs if rules detail them
+                
+                # Total Meat Damage is reduced by location HP
+                self.current_meat_damage -= damage_after_armor
+            else:
+                self.current_meat_damage -= max(0, amount - effective_armor) # Fallback to general armor
+                log_message += f" (Applied to general health, {effective_armor} armor). Current Meat Damage: {self.current_meat_damage}"
+        else:
+            self.current_meat_damage -= max(0, amount - effective_armor)
+            log_message += f" (Applied to general health, {effective_armor} armor). Current Meat Damage: {self.current_meat_damage}"
+        
+        self.current_meat_damage = max(0, self.current_meat_damage) # Cannot go below 0
+        if self.current_meat_damage <= 0:
+            self.is_conscious = False
+            # Death handling is now done by GameManager.handle_character_defeat()
+            log_message += f" {self.name} has been knocked unconscious!"
+
+        return log_message
+
+    def apply_stress_damage(self, amount: int):
+        """Applies stress damage."""
+        # Hamburger Artisan Special: +2 Armour vs. Stress Damage they cause you.
+        # This check needs to be done *before* damage is applied, typically at the source.
+        # For now, applying universally if the effect were on this character.
+        # A more robust system would involve combat modifiers.
+        
+        # Simulating resistance for Hamburger Artisan. Needs to know attacker type or be a global effect.
+        # This implementation assumes the 'resistance' is applied when *this* character receives stress.
+        # A better implementation would be on the attacker's skill application.
+        # if self.background == "Hamburger Artisan": # This 'background' attribute needs to be on Character for this to work
+        #    amount = max(0, amount - 2) # Reduce incoming stress damage by 2
+
+        self.current_stress += amount
+        self.current_stress = min(self.current_stress, self.stress_max)
+        log_message = f"{self.name} takes {amount} Stress Damage. Current Stress: {self.current_stress}"
+        # TODO: Implement effects for reaching max stress (e.g., mental breakdown, fear)
+        return log_message
+
+    def apply_debt_change(self, amount: int):
+        """Applies changes to debt."""
+        self.current_debt += amount
+        log_message = f"{self.name}'s Debt changes by {amount}. Current Debt: {self.current_debt}"
+        # TODO: Implement effects for high/low debt (e.g., financial ruin, bounty)
+        return log_message
+
+    def add_status_effect(self, effect: StatusEffect, duration: int = 1):
+        """Adds a status effect to the character."""
+        # Special logic for Raging: Physick bonus
+        if effect == StatusEffect.RAGING:
+            # Physick bonus equal to successes rolled, but successes are from the *roll* not this function
+            # For simplicity, if Rage is added, assume a base bonus or a GM-determined bonus
+            # A more accurate implementation would pass the successes from the Rage skill roll
+            self.stats["Physick"] = self.stats.get("Physick", 0) + 2 # Example constant bonus for Rage
+            return f"{self.name} gains '{effect.value}' for {duration} turn(s) and a Physick bonus. (Physick: {self.stats['Physick']})"
+
+        self.status_effects[effect] = self.status_effects.get(effect, 0) + duration
+        return f"{self.name} gains '{effect.value}' for {duration} turn(s)."
+
+    def remove_status_effect(self, effect: StatusEffect):
+        """Removes a specific status effect."""
+        if effect in self.status_effects:
+            if effect == StatusEffect.RAGING:
+                # Remove Physick bonus if Rage expires
+                self.stats["Physick"] = self.stats.get("Physick", 0) - 2 # Undo Rage bonus
+                # Rage subsides: take 1d6+Rage Meat Damage is handled in end_combat
+            del self.status_effects[effect]
+            return f"{self.name} is no longer '{effect.value}'."
+        return ""
+
+    def update_status_effects(self):
+        """Decrements duration of status effects and removes expired ones."""
+        messages = []
+        expired_effects = []
+        for effect, duration in list(self.status_effects.items()):
+            if effect == StatusEffect.BLEEDING: # Bleeding takes damage each turn
+                bleed_damage = parse_dice_formula("1d6") # Example bleed damage
+                messages.append(self.apply_meat_damage(bleed_damage))
+                messages.append(f"{self.name} continues to bleed, taking {bleed_damage} Meat Damage.")
+            
+            # De-Registered is permanent unless explicitly removed
+            if effect == StatusEffect.DE_REGISTERED:
+                continue # Do not decrement duration for this permanent effect
+
+            self.status_effects[effect] -= 1
+            if self.status_effects[effect] <= 0:
+                expired_effects.append(effect)
+                messages.append(f"{self.name}'s '{effect.value}' effect has worn off.")
+        for effect in expired_effects:
+            msg = self.remove_status_effect(effect)
+            if msg: messages.append(msg)
+        return messages
+    
+    def can_act(self) -> bool:
+        """Checks if the character can take actions."""
+        return self.is_conscious and StatusEffect.STUNNED not in self.status_effects
+
+    def to_dict(self):
+        """Converts character object to a dictionary for serialization."""
+        return {
+            "id": self.id,
+            "name": self.name,
+            "stats": self.stats,
+            "skills": self.skills,
+            "inventory": self.inventory,
+            "armor": self.armor,
+            "meat_damage_max": self.meat_damage_max,
+            "current_meat_damage": self.current_meat_damage,
+            "stress_max": self.stress_max,
+            "current_stress": self.current_stress,
+            "debt_max": self.debt_max,
+            "current_debt": self.current_debt,
+            "status_effects": {k.value: v for k, v in self.status_effects.items()},
+            "char_type": self.char_type,
+            "is_conscious": self.is_conscious,
+            "is_in_combat": self.is_in_combat,
+            "initiative": self.initiative,
+            "current_room_id": self.current_room_id,
+            "hit_locations": {k.value: v for k, v in self.hit_locations.items()},
+            "is_resurrectable": self.is_resurrectable,
+            "is_ghost": self.is_ghost,
+            "ghost_stress_timer_start": self.ghost_stress_timer_start
+        }
+
+    @classmethod
+    def from_dict(cls, data):
+        """Creates a character object from a dictionary."""
+        char = cls(
+            char_id=data["id"],
+            name=data["name"],
+            stats=data["stats"],
+            skills=data["skills"],
+            inventory=data["inventory"],
+            armor=data.get("armor", 0),
+            meat_damage_max=data.get("meat_damage_max", 10),
+            stress_max=data.get("stress_max", 5),
+            debt_max=data.get("debt_max", 20),
+            char_type=data.get("char_type", "Player"),
+            current_room_id=data.get("current_room_id", "")
+        )
+        char.current_meat_damage = data.get("current_meat_damage", char.meat_damage_max)
+        char.current_stress = data.get("current_stress", 0)
+        char.current_debt = data.get("current_debt", 0)
+        char.is_conscious = data.get("is_conscious", True)
+        char.is_in_combat = data.get("is_in_combat", False)
+        char.initiative = data.get("initiative", 0)
+        
+        # Restore status effects (string to Enum)
+        char.status_effects = {StatusEffect(k): v for k, v in data.get("status_effects", {}).items()}
+        # Restore hit locations (string to Enum)
+        char.hit_locations = {HitLocation(k): v for k, v in data.get("hit_locations", {}).items()}
+
+        # Restore resurrection-related flags
+        char.is_resurrectable = data.get("is_resurrectable", True)
+        char.is_ghost = data.get("is_ghost", False)
+        char.ghost_stress_timer_start = data.get("ghost_stress_timer_start", 0)
+        return char
+
+
+class Player(Character):
+    """Represents a player-controlled character."""
+    def __init__(self, player_id, username, background_code, conn_object, current_room_id="START_ROOM"):
+        # Generate stats based on typical ranges for TTRPGs
+        # Assuming Physick, Savvy, Thinkitude, Craveability are the core stats (1-4 base)
+        base_stats = {
+            "Physick": random.randint(1, 4),
+            "Savvy": random.randint(1, 4),
+            "Thinkitude": random.randint(1, 4),
+            "Craveability": random.randint(1, 4),
+        }
+        
+        background_data = BACKGROUNDS.get(background_code)
+        if not background_data:
+            raise ValueError(f"Invalid background code: {background_code}")
+
+        # Store background name directly on player for easier lookup
+        self.background_name = background_data["name"]
+
+        # Apply background specific stat modifications (e.g., Carcinized Believer)
+        if "special" in background_data:
+            if "Your Craveability is always 1" in background_data["special"]:
+                base_stats["Craveability"] = 1
+            if "Because your consciousness exists on a plane inaccessible to vertebrates, your Thinkitude is always 1." in background_data["special"]:
+                base_stats["Thinkitude"] = 1
+                # Other stats max out at 5 instead of 4 - this would be handled at character creation or leveling up
+                # For simplicity here, we'll just set them for now without full leveling logic.
+
+        # Ensure gear from background has a 'name' field for item management
+        initial_inventory = []
+        for item in background_data.get("gear", []):
+            if isinstance(item, str):
+                # If item is just a string, convert to a basic dict
+                initial_inventory.append({"name": item, "description": f"A {item}.", "quantity": 1})
+            elif isinstance(item, dict) and "name" in item:
+                # If it's a dict, ensure it has a 'name' and add it
+                initial_inventory.append(item)
+            # Look up full item data from GENERIC_ITEMS if possible
+            if item.get("name") in GENERIC_ITEMS:
+                full_item_data = GENERIC_ITEMS[item["name"]].copy()
+                full_item_data.update(item) # Overlay specific item data from background
+                initial_inventory[-1] = full_item_data
+
+
+        super().__init__(
+            char_id=player_id,
+            name=username, # Player name is their username
+            stats=base_stats,
+            skills=background_data.get("skills", {}).copy(), # Skills from background
+            inventory=initial_inventory, # Use processed inventory
+            char_type="Player",
+            current_room_id=current_room_id
+        )
+        self.username = username
+        self.background_code = background_code
+        self.conn_object = conn_object # Reference to the client's socket connection
+
+        # Calculate initial Debt based on formula
+        debt_formula = background_data.get("debt_formula", "1d6")
+        # Replace Craveability in formula with actual stat value if present
+        if "Craveability" in debt_formula:
+            debt_formula = debt_formula.replace("Craveability", str(self.stats["Craveability"]))
+        self.current_debt = parse_dice_formula(debt_formula)
+        self.debt_max = self.current_debt * 2 # Simple heuristic for max debt
+
+        # Special: "Rage" skill has a special dice pool rule
+        if "Rage" in self.skills:
+            self.skills["Rage_dice_pool_modifier"] = 1 # Rage x 2 for rolls, meaning +1 to dice pool calc
+
+    def to_dict(self):
+        """Extends base to_dict for Player specific data."""
+        data = super().to_dict()
+        data.update({
+            "username": self.username,
+            "background_name": self.background_name, # Added background_name here
+            "background_code": self.background_code
+        })
+        return data
+
+    @classmethod
+    def from_dict(cls, data, conn_object=None):
+        """Creates a Player object from a dictionary."""
+        # When loading, we only have data dict, not background code directly
+        # Need to find the code from the name or store it more explicitly
+        # For simplicity, we'll assume background_code is always in data for now.
+        
+        player = cls(
+            player_id=data["id"],
+            username=data["username"],
+            background_code=data["background_code"], # Load background_code
+            conn_object=conn_object, # Will likely be None on initial load, then set when client connects
+            current_room_id=data.get("current_room_id", "START_ROOM")
+        )
+        # Restore base Character attributes from the dictionary, overriding initial Player __init__
+        player.stats = data["stats"]
+        player.skills = data["skills"]
+        player.inventory = data["inventory"] # Inventory is loaded as-is
+        player.armor = data.get("armor", 0)
+        player.meat_damage_max = data.get("meat_damage_max", 10)
+        player.current_meat_damage = data.get("current_meat_damage", player.meat_damage_max)
+        player.stress_max = data.get("stress_max", 5)
+        player.current_stress = data.get("current_stress", 0)
+        player.debt_max = data.get("debt_max", 20)
+        player.current_debt = data.get("current_debt", 0)
+        player.is_conscious = data.get("is_conscious", True)
+        player.is_in_combat = data.get("is_in_combat", False)
+        player.initiative = data.get("initiative", 0)
+        player.status_effects = {StatusEffect(k): v for k, v in data.get("status_effects", {}).items()}
+        player.hit_locations = {HitLocation(k): v for k, v in data.get("hit_locations", {}).items()}
+
+        player.is_resurrectable = data.get("is_resurrectable", True)
+        player.is_ghost = data.get("is_ghost", False)
+        player.ghost_stress_timer_start = data.get("ghost_stress_timer_start", 0)
+
+        # Set background_name from loaded data
+        player.background_name = data.get("background_name", BACKGROUNDS.get(data["background_code"], {}).get("name", "Unknown Background"))
+        return player
+
+class NPC(Character):
+    """Represents a Non-Player Character or monster."""
+    def __init__(self, npc_id, name, stats, skills, inventory=None, armor=0, meat_damage_max=10, stress_max=5, debt_max=20, current_room_id="", behavior_type="passive_hostile"):
+        
+        # Ensure inventory items are full dictionaries from GENERIC_ITEMS if they are just names
+        processed_inventory = []
+        if inventory:
+            for item in inventory:
+                if isinstance(item, str):
+                    processed_inventory.append(GENERIC_ITEMS.get(item, {"name": item, "description": f"A {item}.", "quantity": 1}))
+                elif isinstance(item, dict) and "name" in item:
+                    # Merge with generic item data if available
+                    full_item_data = GENERIC_ITEMS.get(item["name"], {}).copy()
+                    full_item_data.update(item)
+                    processed_inventory.append(full_item_data)
+                else:
+                    processed_inventory.append(item) # Fallback
+
+        super().__init__(npc_id, name, stats, skills, processed_inventory, armor, meat_damage_max, stress_max, debt_max, char_type="NPC", current_room_id=current_room_id)
+        # Basic NPC AI properties
+        self.aggro_target_id = None # Whom this NPC is currently targeting
+        self.behavior_type = behavior_type # e.g., "passive_hostile", "aggressive_on_sight", "merchant_passive"
+
+    def decide_action(self, combatants: dict, game_world_ref):
+        """
+        Simple AI for NPCs to decide their action in automated combat.
+        Prioritizes attacking the aggro target, otherwise a random player.
+        """
+        # If Dazed/Stunned, do nothing
+        if not self.can_act():
+            return None # Cannot act
+
+        target_char = None
+        if self.aggro_target_id and self.aggro_target_id in combatants:
+            target_char = combatants[self.aggro_target_id]
+        else:
+            # Find a living player in the same room to attack
+            players_in_room = [c for c in combatants.values() if c.char_type == "Player" and c.is_conscious and c.current_room_id == self.current_room_id]
+            if players_in_room:
+                target_char = random.choice(players_in_room)
+                self.aggro_target_id = target_char.id # Set aggro
+
+        if target_char:
+            # Simple AI: If combat skill available, use it. Otherwise, bash.
+            combat_skills = ["Axe", "Bash", "Cyber Karate", "Fencing", "Heavy Weapon", "Knife", "Pistol", "Rifle", "Shotgun", "Spear", "Throw", "Zero-G Combat"]
+            available_combat_skills = [s for s in combat_skills if self.get_skill_level(s) > 0]
+            
+            if available_combat_skills:
+                chosen_skill = random.choice(available_combat_skills)
+                return {"action_type": "attack", "skill": chosen_skill, "target_id": target_char.id}
+            else:
+                # Fallback to Bash if no specific combat skills
+                return {"action_type": "attack", "skill": "Bash", "target_id": target_char.id}
+        else: # No target in combat, maybe try to move or just skip turn
+            # For now, just skip if no target. In a full MUD, they might patrol or search.
+            return {"action_type": "wait_turn"}
+        
+        return None # No target or action possible
+
+    def to_dict(self):
+        """Extends base to_dict for NPC specific data."""
+        data = super().to_dict()
+        data.update({
+            "behavior_type": self.behavior_type,
+            "aggro_target_id": self.aggro_target_id
+        })
+        return data
+
+    @classmethod
+    def from_dict(cls, data):
+        """Creates an NPC object from a dictionary."""
+        npc = cls(
+            npc_id=data["id"],
+            name=data["name"],
+            stats=data["stats"],
+            skills=data["skills"],
+            inventory=data["inventory"], # Inventory is loaded as-is
+            armor=data.get("armor", 0),
+            meat_damage_max=data.get("meat_damage_max", 10),
+            stress_max=data.get("stress_max", 5),
+            debt_max=data.get("debt_max", 20),
+            current_room_id=data.get("current_room_id", ""),
+            behavior_type=data.get("behavior_type", "passive_hostile")
+        )
+        # Restore base Character attributes
+        npc.current_meat_damage = data.get("current_meat_damage", npc.meat_damage_max)
+        npc.current_stress = data.get("current_stress", 0)
+        npc.current_debt = data.get("current_debt", 0)
+        npc.is_conscious = data.get("is_conscious", True)
+        npc.is_in_combat = data.get("is_in_combat", False)
+        npc.initiative = data.get("initiative", 0)
+        npc.status_effects = {StatusEffect(k): v for k, v in data.get("status_effects", {}).items()}
+        npc.hit_locations = {HitLocation(k): v for k, v in data.get("hit_locations", {}).items()}
+        npc.is_resurrectable = data.get("is_resurrectable", True)
+        npc.is_ghost = data.get("is_ghost", False)
+        npc.ghost_stress_timer_start = data.get("ghost_stress_timer_start", 0)
+        npc.aggro_target_id = data.get("aggro_target_id")
+        return npc
+
+
+class Room:
+    """Represents a single location in the game world."""
+    def __init__(self, room_id, name, description, exits=None, items=None, no_resurrection_zone=False):
+        self.id = room_id
+        self.name = name
+        self.description = description
+        self.exits = exits if exits is not None else {} # {ExitDirection.NORTH: "room_id_north"}
+        self.items = items if items is not None else [] # List of item dicts
+        self.no_resurrection_zone = no_resurrection_zone # Flag for resurrection rule
+
+    def to_dict(self):
+        """Converts Room object to a dictionary for serialization."""
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "exits": {k.value: v for k, v in self.exits.items()},
+            "items": self.items,
+            "no_resurrection_zone": self.no_resurrection_zone
+        }
+
+    @classmethod
+    def from_dict(cls, data):
+        """Creates a Room object from a dictionary."""
+        exits_enum = {ExitDirection(k): v for k, v in data.get("exits", {}).items()}
+        return cls(
+            room_id=data["id"],
+            name=data["name"],
+            description=data["description"],
+            exits=exits_enum,
+            items=data.get("items", []),
+            no_resurrection_zone=data.get("no_resurrection_zone", False)
+        )
+
+class GameWorld:
+    """Manages all rooms and their procedural generation."""
+    def __init__(self):
+        self.rooms = {} # {room_id: Room_object}
+        self.max_rooms = 100 # Limit to prevent infinite generation during testing
+        self.generated_room_count = 0
+
+        # Start with a central plaza as the initial room
+        self.create_room("START_ROOM", "Central Plaza")
+
+    def create_room(self, room_id, archetype_name="Corridor"):
+        """Creates a new room based on an archetype and adds it to the world."""
+        if room_id in self.rooms:
+            return self.rooms[room_id]
+        
+        if self.generated_room_count >= self.max_rooms:
+            print(f"{C.YELLOW}Max rooms reached. Cannot generate more rooms.{C.RESET}")
+            return None
+
+        archetype = ROOM_ARCHETYPES.get(archetype_name, ROOM_ARCHETYPES["Corridor"]) # Default to Corridor
+
+        name = random.choice(archetype["names"])
+        description = random.choice(archetype["descriptions"])
+        
+        # Determine if this is a no-resurrection zone based on archetype chance
+        is_no_res_zone = random.random() < archetype.get("no_resurrection_zone", 0.0)
+
+        new_room = Room(room_id, name, description, no_resurrection_zone=is_no_res_zone)
+        
+        # Populate items (ensure items from GENERIC_ITEMS are full dicts)
+        for item_name_key, chance in archetype["item_spawn_chance"].items():
+            if random.random() < chance:
+                # Use GENERIC_ITEMS to get full item data, fallback to basic dict
+                item_data = GENERIC_ITEMS.get(item_name_key, {"name": item_name_key, "description": f"A {item_name_key}.", "quantity": 1})
+                # Add a 'quantity' if not present
+                if "quantity" not in item_data:
+                    item_data["quantity"] = 1
+                new_room.items.append(item_data)
+
+        self.rooms[room_id] = new_room
+        self.generated_room_count += 1
+        print(f"{C.GREEN}Generated new room: '{new_room.name}' (ID: {room_id}){', NO RESURRECTION ZONE' if is_no_res_zone else ''}. Total rooms: {self.generated_room_count}{C.RESET}")
+        return new_room
+
+    def get_room(self, room_id):
+        """Returns a room object by ID."""
+        return self.rooms.get(room_id)
+
+    def add_exit(self, room_id_a, direction, room_id_b):
+        """Adds a one-way exit from room A to room B."""
+        room_a = self.get_room(room_id_a)
+        if room_a:
+            room_a.exits[direction] = room_id_b
+        else:
+            print(f"{C.RED}Error: Room {room_id_a} not found when adding exit.{C.RESET}")
+
+    def generate_exits_for_room(self, room_id, parent_room_id=None, incoming_direction=None):
+        """
+        Generates exits for a newly created room, linking it to the world.
+        Tries to maintain a sense of connectivity.
+        """
+        room = self.get_room(room_id)
+        if not room:
+            return
+
+        # Use room's actual name to find its archetype properties
+        archetype_name_for_room = next((a_name for a_name, a_data in ROOM_ARCHETYPES.items() if room.name in a_data["names"]), "Corridor")
+        exit_pattern = ROOM_ARCHETYPES.get(archetype_name_for_room)["exit_patterns"] 
+        
+        # Ensure a reciprocal exit if this room was just generated from another
+        if parent_room_id and incoming_direction:
+            opposite_dir = ExitDirection.opposite(incoming_direction)
+            if opposite_dir and opposite_dir not in room.exits:
+                room.exits[opposite_dir] = parent_room_id
+                # print(f"  - Linked {room.name} back to {self.get_room(parent_room_id).name} via {opposite_dir.value}") # Debugging generation
+
+        # Determine how many new exits to create
+        num_new_exits = random.randint(1, 3) if room.id != "START_ROOM" else 3 # Start room gets more exits
+        if "single_entry" in exit_pattern: num_new_exits = 1 # Shops, Offices etc.
+        elif "multiple_cardinal" in exit_pattern: num_new_exits = random.randint(2, 4)
+
+        possible_directions = list(set(list(ExitDirection)) - set(room.exits.keys()))
+        random.shuffle(possible_directions)
+
+        for _ in range(num_new_exits):
+            if not possible_directions: break
+            
+            direction = possible_directions.pop()
+            if direction in room.exits: continue # Skip if already an exit
+
+            new_room_id = f"room_{secrets.token_hex(4)}"
+            
+            # Choose archetype for new room
+            new_room_archetype_name = random.choice(list(ROOM_ARCHETYPES.keys()))
+            if archetype_name_for_room == "Central Plaza" and random.random() < 0.3:
+                new_room_archetype_name = "Shop" if random.random() < 0.5 else "Office"
+            elif archetype_name_for_room == "Corridor" and random.random() < 0.2:
+                new_room_archetype_name = random.choice(["Storage", "Slum Habitation"])
+
+            new_room = self.create_room(new_room_id, new_room_archetype_name)
+            if new_room:
+                room.exits[direction] = new_room.id
+                # print(f"  - Added exit {direction.value} from {room.name} to {new_room.name} (ID: {new_room.id})") # Debugging generation
+                
+                # Recursively generate exits for the new room, ensuring reciprocal link
+                if new_room.id != parent_room_id: # Avoid infinite loop if somehow linking back to parent directly
+                    self.generate_exits_for_room(new_room.id, room_id, direction)
+
+    def generate_npcs_for_room(self, room_id, current_npcs: dict[str, Character]):
+        """Generates NPCs based on room archetype and adds them to the room."""
+        room = self.get_room(room_id)
+        if not room:
+            return []
+
+        # Use room's actual name to find its archetype properties
+        archetype_name_for_room = next((a_name for a_name, a_data in ROOM_ARCHETYPES.items() if room.name in a_data["names"]), "Corridor")
+        archetype = ROOM_ARCHETYPES.get(archetype_name_for_room)
+        
+        if not archetype:
+            return [] # Should not happen if archetypes are correctly defined
+
+        npcs_in_room = [npc for npc in current_npcs.values() if npc.current_room_id == room_id and npc.is_conscious]
+        
+        generated_npcs = []
+
+        # Don't overpopulate a room
+        if len(npcs_in_room) >= 3: # Max 3 active NPCs per room (example limit)
+            return []
+
+        for npc_type, chance in archetype["npc_spawn_chance"].items():
+            if random.random() < chance:
+                npc_archetype_data = NPC_ARCHETYPES.get(npc_type)
+                if npc_archetype_data:
+                    npc_id = f"npc_{secrets.token_hex(4)}"
+                    npc_name = random.choice(npc_archetype_data["names"])
+                    npc_stats = npc_archetype_data["stats"].copy()
+                    
+                    # Randomly assign 1 to 2 skills from the archetype's list
+                    num_skills_to_assign = random.randint(1, min(len(npc_archetype_data["skills"]), 2))
+                    assigned_skills = {s: random.randint(1, 2) for s in random.sample(npc_archetype_data["skills"], k=num_skills_to_assign)}
+                    
+                    npc_inventory_raw = npc_archetype_data["inventory"].copy() 
+                    
+                    new_npc = NPC(
+                        npc_id,
+                        npc_name,
+                        npc_stats,
+                        assigned_skills,
+                        inventory=npc_inventory_raw, # Pass raw inventory to NPC constructor for processing
+                        armor=npc_archetype_data.get("armor", 0),
+                        meat_damage_max=npc_archetype_data.get("meat_damage_max", 10),
+                        stress_max=npc_archetype_data.get("stress_max", 5),
+                        debt_max=npc_archetype_data.get("debt_max", 20),
+                        current_room_id=room_id, # Set NPC's room
+                        behavior_type=npc_archetype_data.get("behavior_type", "passive_hostile")
+                    )
+                    generated_npcs.append(new_npc)
+
+        return generated_npcs # Return list of newly generated NPCs to be added by GameManager
+
+    def to_dict(self):
+        """Converts GameWorld object to a dictionary for serialization."""
+        return {
+            "rooms": {room_id: room.to_dict() for room_id, room in self.rooms.items()},
+            "generated_room_count": self.generated_room_count
+        }
+
+    @classmethod
+    def from_dict(cls, data):
+        """Creates a GameWorld object from a dictionary."""
+        world = cls()
+        world.rooms = {room_id: Room.from_dict(room_data) for room_id, room_data in data.get("rooms", {}).items()}
+        world.generated_room_count = data.get("generated_room_count", len(world.rooms))
+        # If loading from empty save, ensure START_ROOM is present
+        if not world.rooms or "START_ROOM" not in world.rooms: # Changed to 'or' to ensure generation if rooms is empty
+             world.create_room("START_ROOM", "Central Plaza")
+             world.generate_exits_for_room("START_ROOM") # Generate initial exits for START_ROOM
+        return world
+
+
+# --- Game Management ---
+class GameManager:
+    """Manages the overall game state, players, and transitions between game phases."""
+    def __init__(self, server_instance):
+        self.server = server_instance
+        self.players = {} # {player_id: Player_object}
+        self.npcs = {} # {npc_id: NPC_object} (all NPCs in the world, indexed by ID)
+        self.current_game_state = GameState.LOBBY
+        self.active_combat = None # Holds CombatManager instance if combat is active
+        self.chat_history = deque(maxlen=100) # Recent chat messages
+        self.game_world = GameWorld() # Instantiate the game world
+        self.resurrection_spawn_point = "START_ROOM" # Default respawn location
+
+        # Game mode: "AUTOMATED" or "GM_LED"
+        # In GM_LED, GM client can issue commands that bypass/influence automated logic
+        self.game_mode = "AUTOMATED" 
+        self.gm_client_id = None # ID of the client currently acting as GM, if any
+
+    def broadcast_message(self, message: str, message_type="chat", target_room_id=None):
+        """Sends a message to connected players, optionally limited to a room."""
+        full_message = json.dumps({"type": message_type, "message": message})
+        print(f"Broadcasting ({message_type}, Room: {target_room_id if target_room_id else 'All'}): {message}") # Server-side log
+        for player_id, player in self.players.items():
+            if player.conn_object:
+                # If target_room_id is None, broadcast to all. Otherwise, only to players in that room.
+                if target_room_id is None or player.current_room_id == target_room_id:
+                    try:
+                        player.conn_object.sendall(full_message.encode('utf-8'))
+                    except (socket.error, BrokenPipeError) as e:
+                        print(f"Error sending to {player.username}: {e}. Disconnecting.")
+                        self.server.remove_client(player.conn_object)
+    
+    def send_to_player(self, player_id: str, message: dict):
+        """Sends a structured message (dict) to a specific player."""
+        player = self.players.get(player_id)
+        if player and player.conn_object:
+            try:
+                player.conn_object.sendall(json.dumps(message).encode('utf-8'))
+            except (socket.error, BrokenPipeError) as e:
+                print(f"Error sending to {player.username}: {e}. Disconnecting.")
+                self.server.remove_client(player.conn_object)
+
+    def game_tick(self):
+        """Performs periodic game updates, e.g., ghost stress."""
+        for player_id, player in self.players.items():
+            if player.is_ghost:
+                # Apply stress for Renegade Angel ghosts
+                minutes_as_ghost = (time.time() - player.ghost_stress_timer_start) / 60
+                # Apply 1 stress per minute spent as a ghost
+                stress_to_add = int(minutes_as_ghost) - int((time.time() - (player.ghost_stress_timer_start + 59)) / 60) # Only add once per minute boundary
+                if stress_to_add > 0:
+                    log_msg = player.apply_stress_damage(stress_to_add)
+                    self.broadcast_message(f"As a ghost, {player.name} takes {stress_to_add} Stress. {log_msg}", "game_log", target_room_id=player.current_room_id)
+                    player.ghost_stress_timer_start = time.time() # Reset timer for next minute
+                    if player.current_stress >= player.stress_max:
+                        self.broadcast_message(f"{player.name}'s ghostly form dissipates under immense stress! They are lost to the Death Dimension.", "system", target_room_id=player.current_room_id)
+                        self.server.remove_client(player.conn_object) # Permanent death for ghost hitting max stress
+
+        self.send_game_state_to_all() # Update clients after tick
+
+    def process_client_action(self, player_id: str, action: dict):
+        """
+        Main entry point for client actions. Routes to appropriate handlers
+        based on current game state and action type.
+        """
+        player = self.players.get(player_id)
+        if not player:
+            self.send_to_player(player_id, {"type": "error", "message": "Player not found."})
+            return
+
+        print(f"Processing action from {player.username}: {action}")
+        log_messages = []
+
+        if self.current_game_state == GameState.LOBBY:
+            if action.get("type") == "join_game":
+                log_messages.append(f"{player.name} is ready to start a game.")
+                self.send_to_player(player_id, {"type": "game_state_update", "state": self.current_game_state.value, "players": {p.id: p.to_dict() for p in self.players.values()}})
+                self.broadcast_message(f"{player.name} has joined the lobby.", "system")
+            elif action.get("type") == "create_character" and "background_code" in action:
+                try:
+                    background_code = str(action["background_code"])
+                    new_player = Player(player_id, player.username, background_code, player.conn_object, current_room_id="START_ROOM")
+                    self.players[player_id] = new_player
+                    self.game_world.get_room("START_ROOM").items.append({"name": new_player.name, "id": new_player.id, "type": "character"}) # Add player to room content list
+                    log_messages.append(f"{new_player.name} created character '{new_player.background_name}'.")
+                    self.send_to_player(player_id, {"type": "character_update", "character_data": new_player.to_dict()})
+                    self.broadcast_message(f"{new_player.name} has created a character: {new_player.background_name}.", "system")
+                    self.broadcast_message(f"{new_player.name} has entered {self.game_world.get_room(new_player.current_room_id).name}.", "room_entry", target_room_id=new_player.current_room_id)
+                    self.describe_room_to_player(player_id) # Describe their starting room
+                    self.current_game_state = GameState.EXPLORATION # Automatically move to exploration after character creation
+                except ValueError as e:
+                    self.send_to_player(player_id, {"type": "error", "message": str(e)})
+            else:
+                log_messages.append(f"Action '{action.get('type')}' not allowed in LOBBY state.")
+
+        elif self.current_game_state == GameState.EXPLORATION:
+            if action.get("type") == "move" and "direction" in action:
+                self.handle_player_movement(player_id, action["direction"])
+            elif action.get("type") == "look":
+                self.describe_room_to_player(player_id)
+            elif action.get("type") == "inventory":
+                self.handle_player_inventory(player_id)
+            elif action.get("type") == "get_item" and "item_name" in action:
+                self.handle_get_item(player_id, action["item_name"])
+            elif action.get("type") == "drop_item" and "item_name" in action:
+                self.handle_drop_item(player_id, action["item_name"])
+            elif action.get("type") == "respawn" and not player.is_conscious:
+                self.handle_player_respawn(player_id)
+            elif action.get("type") == "start_social_encounter" and "target_id" in action:
+                target = self.players.get(action["target_id"]) or self.npcs.get(action["target_id"])
+                if target and target.current_room_id == player.current_room_id:
+                    self.start_social_encounter(player, target)
+                    log_messages.append(f"{player.name} started a social encounter with {target.name}.")
+                else:
+                    self.send_to_player(player_id, {"type": "error", "message": "Target not found in current room."})
+            elif action.get("type") == "start_financial_encounter" and "target_id" in action:
+                target = self.players.get(action["target_id"]) or self.npcs.get(action["target_id"])
+                if target and target.current_room_id == player.current_room_id:
+                    self.start_financial_encounter(player, target)
+                    log_messages.append(f"{player.name} started a financial encounter with {target.name}.")
+                else:
+                    self.send_to_player(player_id, {"type": "error", "message": "Target not found in current room."})
+            elif action.get("type") == "attack" and "target_id" in action and "skill" in action:
+                target = self.players.get(action["target_id"]) or self.npcs.get(action["target_id"])
+                if target and target.is_conscious and target.current_room_id == player.current_room_id:
+                    self.start_combat([player, target])
+                    log_messages.append(f"{player.name} initiated physical combat with {target.name}.")
+                    if self.active_combat:
+                        self.active_combat.handle_combat_action(player_id, action)
+                else:
+                    self.send_to_player(player_id, {"type": "error", "message": "Invalid or unconscious target not in current room for attack."})
+            elif action.get("type") == "use_skill" and action.get("skill") == "Hacking" and action.get("target_id"):
+                target_char_id = action["target_id"]
+                target_char = self.players.get(target_char_id) or self.npcs.get(target_char_id)
+                if target_char and player.get_skill_level("Hacking") > 0:
+                    # Simplified Hacking success check
+                    num_dice = player.get_stat_value("Thinkitude") + player.get_skill_level("Hacking")
+                    successes, _, _ = roll_dice(num_dice)
+                    if successes > 0:
+                        target_char.is_resurrectable = False
+                        target_char.add_status_effect(StatusEffect.DE_REGISTERED, duration=9999) # Essentially permanent
+                        log_messages.append(f"{player.name} successfully hacked {target_char.name}'s CHRIST account. They are now de-registered from the Resurrection Matrix!")
+                        # Rulebook implies high punishment for getting caught - not implemented
+                    else:
+                        log_messages.append(f"{player.name}'s hacking attempt on {target_char.name}'s CHRIST account failed.")
+                else:
+                    log_messages.append("Invalid target or insufficient skill for hacking CHRIST account.")
+            else:
+                log_messages.append(f"Action '{action.get('type')}' not allowed in EXPLORATION state.")
+
+        elif self.current_game_state == GameState.COMBAT and self.active_combat:
+            combat_log = self.active_combat.handle_combat_action(player_id, action)
+            log_messages.extend(combat_log)
+            # CombatManager now handles direct calls to handle_character_defeat when health drops
+            # We still check is_combat_over here for state transition
+            if self.active_combat.is_combat_over():
+                log_messages.append(f"Combat has ended. Outcome: {self.active_combat.get_combat_outcome()}")
+                self.end_combat()
+
+        elif self.current_game_state == GameState.SOCIAL_ENCOUNTER:
+            if action.get("type") == "social_skill_use" and "skill" in action and "target_id" in action:
+                target = self.players.get(action["target_id"]) or self.npcs.get(action["target_id"])
+                if target and target.current_room_id == player.current_room_id and player.get_skill_level(action["skill"]) > 0:
+                    stat_to_use = "Craveability" 
+                    if action["skill"] == "Intimidation": stat_to_use = "Physick" 
+
+                    num_dice = player.get_stat_value(stat_to_use) + player.get_skill_level(action["skill"])
+                    successes, rolls, is_crit = roll_dice(num_dice)
+                    
+                    outcome_msg = f"{player.name} rolled {num_dice}d6 ({rolls}) for {action['skill']} on {target.name}: {successes} successes ({'Critical!' if is_crit else ''})."
+                    if successes > 0:
+                        if action["skill"] == "Intimidation":
+                            # Hamburger Artisan Special: +2 Armour vs. Stress Damage
+                            stress_damage = successes
+                            if player.background_name == "Hamburger Artisan" and action.get("message", "").lower() == "tired indifference":
+                                stress_damage = max(0, stress_damage - 2)
+                                outcome_msg += " (Hamburger Artisan's indifference provides +2 Armour vs Stress!)"
+                            
+                            target_log = target.apply_stress_damage(stress_damage)
+                            outcome_msg += f" {target_log}"
+                        elif action["skill"] == "Charm":
+                            outcome_msg += f" {target.name} is charmed." # Needs more specific effect
+                        elif action["skill"] == "Asskissing":
+                            outcome_msg += f" {target.name} is impressed by {player.name}'s flattery." # Needs more specific effect
+                    else:
+                        outcome_msg += f" {player.name}'s attempt fails."
+                    log_messages.append(outcome_msg)
+                else:
+                    self.send_to_player(player_id, {"type": "error", "message": "Invalid social skill, target, or target not in room."})
+            elif action.get("type") == "end_social_encounter":
+                 self.end_social_encounter(player)
+                 log_messages.append(f"{player.name} ended the social encounter.")
+            else:
+                log_messages.append(f"Action '{action.get('type')}' not allowed in SOCIAL_ENCOUNTER state.")
+
+        elif self.current_game_state == GameState.FINANCIAL_ENCOUNTER:
+            if action.get("type") == "financial_skill_use" and "skill" in action and "target_id" in action:
+                target = self.players.get(action["target_id"]) or self.npcs.get(action["target_id"])
+                if target and target.current_room_id == player.current_room_id and player.get_skill_level(action["skill"]) > 0:
+                    stat_to_use = "Thinkitude" 
+                    if action["skill"] == "Corruption": stat_to_use = "Savvy"
+                    elif action["skill"] == "Gambling": stat_to_use = "Savvy"
+
+                    num_dice = player.get_stat_value(stat_to_use) + player.get_skill_level(action["skill"])
+                    successes, rolls, is_crit = roll_dice(num_dice)
+                    
+                    outcome_msg = f"{player.name} rolled {num_dice}d6 ({rolls}) for {action['skill']} on {target.name}: {successes} successes ({'Critical!' if is_crit else ''})."
+                    if successes > 0:
+                        if action["skill"] == "Finance":
+                            debt_change = successes
+                            player.apply_debt_change(-debt_change) 
+                            target.apply_debt_change(debt_change) 
+                            outcome_msg += f" {player.name} gained {debt_change} Debt advantage over {target.name}. {player.name}'s Debt: {player.current_debt}, {target.name}'s Debt: {target.current_debt}."
+                        elif action["skill"] == "Corruption":
+                            stolen_debt = random.randint(1, successes * 2) 
+                            if target.current_debt >= stolen_debt:
+                                target.apply_debt_change(-stolen_debt)
+                                player.apply_debt_change(stolen_debt)
+                                outcome_msg += f" {player.name} successfully corrupted {target.name} for {stolen_debt} Debt. {player.name}'s Debt: {player.current_debt}, {target.name}'s Debt: {target.current_debt}."
+                            else:
+                                outcome_msg += f" {target.name} has no Debt to take! {target.name}'s Debt: {target.current_debt}."
+                        elif action["skill"] == "Gambling":
+                            winnings = successes * random.randint(1, 6) 
+                            player.apply_debt_change(-winnings)
+                            target.apply_debt_change(winnings) 
+                            outcome_msg += f" {player.name} won {winnings} Debt from {target.name}! {player.name}'s Debt: {player.current_debt}, {target.name}'s Debt: {target.current_debt}."
+                            if is_crit: 
+                                outcome_msg += " (Critical success! Mutajuice reroll available if smoked.)"
+                    else:
+                        outcome_msg += f" {player.name}'s financial scheme fails."
+                    log_messages.append(outcome_msg)
+                else:
+                    self.send_to_player(player_id, {"type": "error", "message": "Invalid financial skill, target, or target not in room."})
+            elif action.get("type") == "end_financial_encounter":
+                self.end_financial_encounter(player)
+                log_messages.append(f"{player.name} ended the financial encounter.")
+            else:
+                log_messages.append(f"Action '{action.get('type')}' not allowed in FINANCIAL_ENCOUNTER state.")
+
+        else:
+            log_messages.append(f"Action '{action.get('type')}' not allowed in current game state {self.current_game_state.value}.")
+
+        for msg in log_messages:
+            self.broadcast_message(msg, "game_log")
+        
+        self.send_game_state_to_all() # Always send an updated game state to all players after any action
+
+
+    def handle_player_movement(self, player_id: str, direction_str: str):
+        """Handles player movement between rooms."""
+        player = self.players.get(player_id)
+        if not player or not player.is_conscious or player.is_ghost: # Ghosts cannot move normally
+            self.send_to_player(player_id, {"type": "error", "message": "You cannot move right now."})
+            return
+
+        current_room = self.game_world.get_room(player.current_room_id)
+        if not current_room:
+            self.send_to_player(player_id, {"type": "error", "message": "Your current room is not found. This is a bug."})
+            return
+
+        try:
+            direction = ExitDirection(direction_str.lower())
+        except ValueError:
+            self.send_to_player(player_id, {"type": "error", "message": f"Invalid direction: '{direction_str}'. Valid directions are: {', '.join([e.value for e in ExitDirection])}"})
+            return
+
+        next_room_id = current_room.exits.get(direction)
+
+        if next_room_id:
+            # Move to an existing room
+            self.move_character_to_room(player, next_room_id, f"{player.name} exits {direction.value}.")
+            self.describe_room_to_player(player_id)
+        else:
+            # No existing exit, try to generate a new room
+            new_room_id = f"room_{secrets.token_hex(4)}"
+            new_room = self.game_world.create_room(new_room_id)
+            if new_room:
+                # Link current room to new room
+                self.game_world.add_exit(current_room.id, direction, new_room.id)
+                # Ensure new room links back
+                self.game_world.generate_exits_for_room(new_room.id, current_room.id, direction)
+
+                # Move player to the newly generated room
+                self.move_character_to_room(player, new_room.id, f"{player.name} discovers a new path {direction.value}.")
+                self.describe_room_to_player(player_id)
+                # Generate NPCs for the new room, adding them to the global NPC list
+                newly_spawned_npcs = self.game_world.generate_npcs_for_room(new_room.id, self.npcs) 
+                for npc in newly_spawned_npcs:
+                    self.npcs[npc.id] = npc # Add to global list
+                    # NPC is already added to room.items by generate_npcs_for_room itself
+                    self.broadcast_message(f"A {npc.name} appears in {new_room.name}!", "system", target_room_id=new_room.id)
+            else:
+                self.send_to_player(player_id, {"type": "info", "message": f"You can't go {direction_str} from here. There is no exit."})
+
+    def move_character_to_room(self, char: Character, new_room_id: str, exit_message: str = ""):
+        """Moves a character from their current room to a new one."""
+        old_room_id = char.current_room_id
+        old_room = self.game_world.get_room(old_room_id)
+        new_room = self.game_world.get_room(new_room_id)
+
+        if old_room:
+            # Remove character from old room's contents
+            old_room.items = [item for item in old_room.items if not (item.get("type") == "character" and item.get("id") == char.id)]
+            if exit_message: # Only broadcast if there's a specific exit message
+                self.broadcast_message(exit_message, "room_exit", target_room_id=old_room_id)
+
+        char.current_room_id = new_room_id
+        if new_room:
+            # Add character to new room's contents
+            new_room.items.append({"name": char.name, "id": char.id, "type": "character"})
+            # Only broadcast arrival message to new room
+            self.broadcast_message(f"{char.name} arrives.", "room_entry", target_room_id=new_room_id)
+        
+        # If the character is a player, send them a description of the new room
+        if char.char_type == "Player":
+            self.describe_room_to_player(char.id)
+        
+        self.send_game_state_to_all() # Update world state for everyone
+
+    def describe_room_to_player(self, player_id: str):
+        """Sends a detailed description of the player's current room."""
+        player = self.players.get(player_id)
+        if not player: return
+
+        room = self.game_world.get_room(player.current_room_id)
+        if not room:
+            self.send_to_player(player_id, {"type": "room_description", "message": "You are in a void. There is no room here."})
+            return
+
+        description_lines = []
+        description_lines.append(f"{C.BOLD}{room.name}{C.RESET}")
+        description_lines.append(f"{room.description}")
+        if room.no_resurrection_zone:
+            description_lines.append(f"{C.RED}This area feels strangely devoid of the Matrix's influence. Dying here would be... permanent.{C.RESET}")
+
+        # List players in room (excluding self, and showing ghost status)
+        players_in_room = []
+        for p_id, p in self.players.items():
+            if p_id == player_id: continue
+            if p.current_room_id == room.id:
+                status_str = ""
+                if not p.is_conscious:
+                    status_str = " (unconscious)"
+                elif p.is_ghost:
+                    status_str = " (ghostly shimmer)"
+                players_in_room.append(f"{p.name}{status_str}")
+        if players_in_room:
+            description_lines.append(f"Also here: {', '.join(players_in_room)}.")
+        
+        # List NPCs in room (showing unconscious status)
+        npcs_in_room = []
+        for npc_id, npc in self.npcs.items():
+            if npc.current_room_id == room.id:
+                status_str = ""
+                if not npc.is_conscious:
+                    status_str = " (unconscious)"
+                npcs_in_room.append(f"{npc.name}{status_str}")
+        if npcs_in_room:
+            description_lines.append(f"NPCs here: {', '.join(npcs_in_room)}.")
+
+        # List items in room (filter out characters, they are listed above)
+        items_in_room = []
+        for item in room.items:
+            if item.get("type") != "character":
+                item_name = item.get("name", "Unknown Item")
+                quantity_str = f" x{item['quantity']}" if item.get("quantity", 1) > 1 else ""
+                items_in_room.append(f"{item_name}{quantity_str}")
+
+        if items_in_room:
+            description_lines.append(f"You see: {', '.join(items_in_room)}.")
+
+        # List exits
+        exit_descriptions = []
+        for direction, room_id_target in room.exits.items():
+            target_room = self.game_world.get_room(room_id_target)
+            if target_room:
+                exit_descriptions.append(f"{direction.value} ({target_room.name})")
+            else:
+                exit_descriptions.append(f"{direction.value} (unknown destination)") # Fallback for invalid exit
+
+        if exit_descriptions:
+            description_lines.append(f"Exits: {', '.join(exit_descriptions)}")
+        else:
+            description_lines.append("There are no visible exits.")
+
+        self.send_to_player(player_id, {"type": "room_description", "message": "\n".join(description_lines)})
+
+    def handle_get_item(self, player_id: str, item_name: str):
+        """Allows a player to pick up an item from the current room."""
+        player = self.players.get(player_id)
+        if not player or not player.is_conscious:
+            self.send_to_player(player_id, {"type": "error", "message": "You cannot pick up items right now."})
+            return
+
+        current_room = self.game_world.get_room(player.current_room_id)
+        if not current_room:
+            self.send_to_player(player_id, {"type": "error", "message": "Your current room is not found."})
+            return
+        
+        # Find item in room (prioritize by exact name, then partial match)
+        item_to_get = None
+        for item in current_room.items:
+            if item.get("type") != "character" and item.get("name", "").lower() == item_name.lower():
+                item_to_get = item
+                break
+        
+        if not item_to_get: # Try partial match if exact not found
+            for item in current_room.items:
+                if item.get("type") != "character" and item_name.lower() in item.get("name", "").lower():
+                    item_to_get = item
+                    break
+
+        if item_to_get:
+            # Check for quantity if present, assume 1 if not specified
+            quantity = item_to_get.get("quantity", 1)
+
+            # Remove item from room
+            current_room.items.remove(item_to_get) # Removes exact instance
+            
+            # Add item to player's inventory
+            # If item is stackable and player already has it, increment quantity
+            existing_item_in_inventory = None
+            for inv_item in player.inventory:
+                if inv_item.get("name") == item_to_get.get("name") and inv_item.get("stackable", True): # Assume stackable unless specified false
+                    existing_item_in_inventory = inv_item
+                    break
+            
+            if existing_item_in_inventory:
+                existing_item_in_inventory["quantity"] = existing_item_in_inventory.get("quantity", 1) + quantity
+            else:
+                player.inventory.append(item_to_get) # Add the item itself
+            
+            self.broadcast_message(f"{player.name} picks up {item_to_get['name']}.", "game_log", target_room_id=player.current_room_id)
+            self.send_to_player(player_id, {"type": "info", "message": f"You pick up {item_to_get['name']}."})
+            self.describe_room_to_player(player_id) # Refresh room description to reflect change
+        else:
+            self.send_to_player(player_id, {"type": "error", "message": f"You don't see any '{item_name}' here to pick up."})
+        self.send_game_state_to_all()
+
+
+    def handle_drop_item(self, player_id: str, item_name: str):
+        """Allows a player to drop an item from their inventory into the current room."""
+        player = self.players.get(player_id)
+        if not player or not player.is_conscious:
+            self.send_to_player(player_id, {"type": "error", "message": "You cannot drop items right now."})
+            return
+
+        current_room = self.game_world.get_room(player.current_room_id)
+        if not current_room:
+            self.send_to_player(player_id, {"type": "error", "message": "Your current room is not found."})
+            return
+        
+        # Find item in player's inventory
+        item_to_drop_idx = -1
+        for i, item in enumerate(player.inventory):
+            if item.get("name", "").lower() == item_name.lower():
+                item_to_drop_idx = i
+                break
+        
+        if item_to_drop_idx == -1: # Try partial match if exact not found
+             for i, item in enumerate(player.inventory):
+                if item_name.lower() in item.get("name", "").lower():
+                    item_to_drop_idx = i
+                    break
+
+        if item_to_drop_idx != -1:
+            item_to_drop = player.inventory[item_to_drop_idx]
+            quantity = item_to_drop.get("quantity", 1)
+
+            # Handle dropping only part of a stack if quantity is specified in command (future)
+            # For now, always drops entire item/stack
+
+            # Remove from player's inventory
+            if quantity > 1: # If it's a stack, just reduce quantity by 1 for now
+                 item_to_drop["quantity"] -= 1
+                 dropped_item_instance = item_to_drop.copy()
+                 dropped_item_instance["quantity"] = 1 # Create a single instance to drop
+            else:
+                 player.inventory.pop(item_to_drop_idx)
+                 dropped_item_instance = item_to_drop # Drop the whole item
+
+            # Add to room's items
+            # Check if an identical item is already in the room to stack
+            existing_room_item = None
+            for room_item in current_room.items:
+                if room_item.get("name") == dropped_item_instance.get("name") and room_item.get("stackable", True):
+                    existing_room_item = room_item
+                    break
+            
+            if existing_room_item:
+                existing_room_item["quantity"] = existing_room_item.get("quantity", 1) + dropped_item_instance.get("quantity", 1)
+            else:
+                current_room.items.append(dropped_item_instance) # Add the item itself
+
+            self.broadcast_message(f"{player.name} drops {dropped_item_instance['name']}.", "game_log", target_room_id=player.current_room_id)
+            self.send_to_player(player_id, {"type": "info", "message": f"You drop {dropped_item_instance['name']}."})
+            self.describe_room_to_player(player_id) # Refresh room description
+        else:
+            self.send_to_player(player_id, {"type": "error", "message": f"You don't have '{item_name}' in your inventory."})
+        self.send_game_state_to_all()
+
+
+    def handle_player_inventory(self, player_id: str):
+        """Sends the player a list of their current inventory."""
+        player = self.players.get(player_id)
+        if not player:
+            self.send_to_player(player_id, {"type": "error", "message": "Player not found."})
+            return
+
+        inventory_lines = [f"{C.BOLD}--- Your Inventory ---{C.RESET}"]
+        if not player.inventory:
+            inventory_lines.append("You are carrying nothing.")
+        else:
+            for item in player.inventory:
+                item_name = item.get("name", "Unnamed Item")
+                quantity_str = f" x{item['quantity']}" if item.get("quantity", 1) > 1 else ""
+                description = item.get("description", "No description.")
+                inventory_lines.append(f"- {item_name}{quantity_str}: {description}")
+        
+        inventory_lines.append(f"{C.BOLD}--------------------{C.RESET}")
+        self.send_to_player(player_id, {"type": "info", "message": "\n".join(inventory_lines)})
+
+
+    def start_combat(self, combatants: list[Character]):
+        """Initiates a combat encounter."""
+        if self.active_combat:
+            self.broadcast_message("Another combat is already active. Cannot start new one.", "error")
+            return
+
+        all_combatants = {c.id: c for c in combatants if c.is_conscious}
+        if not all_combatants:
+            self.broadcast_message("No conscious combatants to start combat with.", "error")
+            return
+
+        # Ensure all combatants are in the same room
+        first_char_room = list(all_combatants.values())[0].current_room_id
+        for char in all_combatants.values():
+            if char.current_room_id != first_char_room:
+                self.broadcast_message("All combatants must be in the same room to start combat.", "error")
+                return
+
+        self.active_combat = CombatManager(self, all_combatants)
+        self.current_game_state = GameState.COMBAT
+        
+        for char in all_combatants.values():
+            char.is_in_combat = True
+
+        self.broadcast_message(f"Combat has begun! Participants: {', '.join([c.name for c in all_combatants.values()])}", "system", target_room_id=first_char_room)
+        self.active_combat.start_initiative_phase()
+        self.send_game_state_to_all() # Send initial combat state
+
+    def end_combat(self):
+        """Ends the current combat encounter."""
+        if not self.active_combat:
+            return
+
+        room_id_of_combat = None
+        if self.active_combat.combatants:
+            room_id_of_combat = list(self.active_combat.combatants.values())[0].current_room_id
+
+        combat_outcome = self.active_combat.get_combat_outcome()
+        
+        # Create a list of char_ids to process, as self.active_combat.combatants might change during loop
+        combatant_ids_at_end = list(self.active_combat.combatants.keys())
+
+        for char_id in combatant_ids_at_end: 
+            char = self.players.get(char_id) or self.npcs.get(char_id)
+            if char:
+                char.is_in_combat = False
+                # Clear combat-specific status effects that don't persist
+                if StatusEffect.DAZED in char.status_effects: char.remove_status_effect(StatusEffect.DAZED)
+                if StatusEffect.STUNNED in char.status_effects: char.remove_status_effect(StatusEffect.STUNNED)
+                if StatusEffect.RAGING in char.status_effects:
+                    # Rage subsides: take 1d6+Rage Meat Damage
+                    rage_skill_level = char.get_skill_level("Rage")
+                    if rage_skill_level > 0:
+                        damage_from_rage = parse_dice_formula(f"1d6+{rage_skill_level}")
+                        log_msg = char.apply_meat_damage(damage_from_rage)
+                        self.broadcast_message(f"{char.name}'s rage subsides. {log_msg}", "game_log", target_room_id=room_id_of_combat)
+                    char.remove_status_effect(StatusEffect.RAGING)
+                if StatusEffect.ARMOR_CLEAVED in char.status_effects: char.remove_status_effect(StatusEffect.ARMOR_CLEAVED) # Armor restores
+                if StatusEffect.BLEEDING in char.status_effects: char.remove_status_effect(StatusEffect.BLEEDING) # Bleeding stops
+
+                # Handle death immediately after combat if not already handled by damage application
+                if not char.is_conscious:
+                    self.handle_character_defeat(char_id) # Call new death handling function
+
+        self.active_combat = None
+        self.current_game_state = GameState.EXPLORATION # Return to exploration
+        self.broadcast_message(f"Combat concluded. Outcome: {combat_outcome}", "system", target_room_id=room_id_of_combat)
+        self.send_game_state_to_all()
+
+    def handle_character_defeat(self, char_id: str):
+        """
+        Handles a character being defeated (Meat Damage <= 0).
+        Determines resurrection logic based on background, room, and status effects.
+        """
+        char = self.players.get(char_id) or self.npcs.get(char_id)
+        if not char:
+            return
+
+        room_where_defeated = self.game_world.get_room(char.current_room_id)
+        
+        self.broadcast_message(f"{char.name} has been defeated!", "game_log", target_room_id=char.current_room_id)
+
+        # --- NPC Defeat Logic ---
+        if char.char_type == "NPC":
+            # Drop all NPC's inventory items into the room
+            if room_where_defeated and char.inventory:
+                for item in char.inventory:
+                    # Check if an identical item is already in the room to stack
+                    existing_room_item = None
+                    for room_item in room_where_defeated.items:
+                        if room_item.get("name") == item.get("name") and room_item.get("stackable", True):
+                            existing_room_item = room_item
+                            break
+                    
+                    if existing_room_item:
+                        existing_room_item["quantity"] = existing_room_item.get("quantity", 1) + item.get("quantity", 1)
+                    else:
+                        room_where_defeated.items.append(item)
+                self.broadcast_message(f"{char.name} drops its items as it falls.", "game_log", target_room_id=char.current_room_id)
+            
+            # Remove NPC from room contents
+            if room_where_defeated:
+                room_where_defeated.items = [item for item in room_where_defeated.items if not (item.get("type") == "character" and item.get("id") == char.id)]
+            del self.npcs[char_id] # Remove from global NPC list
+            self.broadcast_message(f"{char.name} ceases to be.", "system", target_room_id=char.current_room_id)
+            return
+
+        # --- Player Defeat Logic ---
+        if char.char_type == "Player":
+            # Check for Renegade Angel special rule
+            if char.background_name == "Renegade Angel":
+                char.is_ghost = True
+                char.is_conscious = False # Already false, but explicit
+                char.is_resurrectable = False # Cannot use CHRIST
+                char.current_meat_damage = 0 # Ensure 0
+                char.ghost_stress_timer_start = time.time() # Start ghost timer
+                char.add_status_effect(StatusEffect.GHOST) # Add ghost status
+                self.broadcast_message(f"{char.name} does not resurrect by CHRIST. They become an intangible ghost!", "system", target_room_id=char.current_room_id)
+                self.send_to_player(char.id, {"type": "info", "message": "You are now an intangible ghost, invisible to the naked eye. You gain 1 Stress per minute. Find corpses to form a new body or be lost forever. (Use 'look' to see corpses if any)"})
+                return
+
+            # Check for "No Resurrection Zone" or "De-Registered" status
+            if (room_where_defeated and room_where_defeated.no_resurrection_zone) or \
+               (StatusEffect.DE_REGISTERED in char.status_effects):
+                char.is_resurrectable = False # Mark as permanently dead
+                self.broadcast_message(f"{char.name} dies permanently, unable to resurrect from the Matrix!", "system", target_room_id=char.current_room_id)
+                self.send_to_player(char.id, {"type": "game_over", "message": "You are permanently dead. Your connection will be terminated. The Matrix has rejected you."})
+                # In a real MUD, you might move them to a 'graveyard' room or disconnect them.
+                # For now, just disconnect.
+                self.server.remove_client(char.conn_object) # Disconnect client
+                return
+
+            # Standard CHRIST Resurrection
+            # Player is unconscious, waiting for respawn action
+            self.broadcast_message(f"{char.name} is unconscious, awaiting resurrection from the Matrix. Type 'respawn' to return.", "system", target_room_id=char.current_room_id)
+            self.send_to_player(char.id, {"type": "info", "message": "You have been defeated. Type 'respawn' to be resurrected by a CHRIST."})
+
+
+    def handle_player_respawn(self, player_id: str):
+        """Resurrects a player character via the CHRIST Matrix."""
+        player = self.players.get(player_id)
+        if not player:
+            self.send_to_player(player_id, {"type": "error", "message": "Player not found."})
+            return
+
+        if player.is_conscious:
+            self.send_to_player(player_id, {"type": "error", "message": "You are already conscious."})
+            return
+
+        if player.is_ghost:
+            self.send_to_player(player_id, {"type": "error", "message": "As a Renegade Angel, you cannot use normal respawn. You must find a corpse to reform."})
+            return
+
+        if not player.is_resurrectable:
+            self.send_to_player(player_id, {"type": "error", "message": "Your CHRIST account is de-registered or you died in a non-resurrection zone. You cannot resurrect."})
+            return
+
+        # Standard resurrection process
+        player.current_meat_damage = player.meat_damage_max # Full health
+        player.current_stress = 0 # Clear stress
+        player.is_conscious = True
+        player.is_in_combat = False # Ensure not stuck in combat state
+        
+        # Clear temporary combat status effects
+        player.status_effects = {}
+
+        # Move to resurrection spawn point
+        self.move_character_to_room(player, self.resurrection_spawn_point, f"{player.name} is resurrected by the Matrix!")
+        self.broadcast_message(f"{player.name} is resurrected by the CHRIST Matrix at the {self.game_world.get_room(self.resurrection_spawn_point).name}!", "system")
+        self.describe_room_to_player(player_id)
+        self.send_to_player(player_id, {"type": "info", "message": "You feel the cold embrace of the Matrix, refreshed and ready to re-enter the HyperMall."})
+        self.send_game_state_to_all()
+
+    def start_social_encounter(self, initiator: Character, target: Character):
+        """Initiates a social encounter."""
+        self.current_game_state = GameState.SOCIAL_ENCOUNTER
+        self.broadcast_message(f"{initiator.name} initiates a social encounter with {target.name}.", "system", target_room_id=initiator.current_room_id)
+        self.send_game_state_to_all()
+
+    def end_social_encounter(self, initiator: Character):
+        """Ends a social encounter."""
+        self.current_game_state = GameState.EXPLORATION
+        self.broadcast_message(f"The social encounter has concluded.", "system", target_room_id=initiator.current_room_id)
+        self.send_game_state_to_all()
+
+    def start_financial_encounter(self, initiator: Character, target: Character):
+        """Initiates a financial encounter."""
+        self.current_game_state = GameState.FINANCIAL_ENCOUNTER
+        self.broadcast_message(f"{initiator.name} initiates a financial encounter with {target.name}.", "system", target_room_id=initiator.current_room_id)
+        self.send_game_state_to_all()
+
+    def end_financial_encounter(self, initiator: Character):
+        """Ends a financial encounter."""
+        self.current_game_state = GameState.EXPLORATION
+        self.broadcast_message(f"The financial encounter has concluded.", "system", target_room_id=initiator.current_room_id)
+        self.send_game_state_to_all()
+
+
+    def add_player(self, player_id: str, username: str, conn_object):
+        """Adds a new player to the game, or reconnects an existing one."""
+        if player_id in self.players:
+            # Reconnecting existing player
+            self.players[player_id].conn_object = conn_object
+            self.broadcast_message(f"{username} reconnected.", "system")
+            print(f"{username} (ID: {player_id}) reconnected.")
+            self.send_to_player(player_id, {"type": "character_update", "character_data": self.players[player_id].to_dict()})
+            # Re-describe current room on reconnect
+            self.describe_room_to_player(player_id)
+        else:
+            # New player - prompt for character creation (or auto-create for now)
+            # This logic will be triggered by client sending "create_character" action
+            self.send_to_player(player_id, {"type": "request_character_creation", "message": f"Welcome, {username}! Please create your character. Available background codes: {', '.join(BACKGROUNDS.keys())}. Example: {{'type': 'action', 'action': {{'type': 'create_character', 'background_code': '11'}}}}"})
+        
+        self.send_game_state_to_all()
+
+
+    def remove_player(self, player_id: str):
+        """Removes a player from the game (e.g., on disconnect)."""
+        if player_id in self.players:
+            player_name = self.players[player_id].name
+            player_room_id = self.players[player_id].current_room_id
+
+            # Remove player from room contents
+            room = self.game_world.get_room(player_room_id)
+            if room:
+                room.items = [item for item in room.items if not (item.get("type") == "character" and item.get("id") == player_id)]
+
+            if self.active_combat and player_id in self.active_combat.combatants:
+                del self.active_combat.combatants[player_id] # Remove from active combat
+                # If combat ends due to player leaving, handle it
+                if self.active_combat.is_combat_over():
+                    self.end_combat()
+
+            del self.players[player_id]
+            self.broadcast_message(f"{player_name} has left the game.", "system", target_room_id=player_room_id)
+            print(f"{player_name} (ID: {player_id}) disconnected.")
+            self.send_game_state_to_all()
+    
+    def add_npc(self, name: str, stats: dict, skills: dict, armor: int = 0, meat_damage_max: int = 10, current_room_id: str = "START_ROOM", behavior_type="passive_hostile"):
+        """Adds a new NPC to the game world."""
+        npc_id = f"npc_{secrets.token_hex(4)}"
+        # Pass empty inventory, NPC constructor will fill from archetype
+        new_npc = NPC(npc_id, name, stats, skills, inventory=[], armor=armor, meat_damage_max=meat_damage_max, stress_max=5, debt_max=20, current_room_id=current_room_id, behavior_type=behavior_type) 
+        self.npcs[npc_id] = new_npc
+        
+        # Add NPC to the room's contents
+        room = self.game_world.get_room(current_room_id)
+        if room:
+            room.items.append({"name": new_npc.name, "id": new_npc.id, "type": "character"})
+
+        self.broadcast_message(f"A new NPC '{name}' has appeared!", "system", target_room_id=current_room_id)
+        self.send_game_state_to_all()
+        return new_npc
+    
+    def is_gm(self, player_id: str) -> bool:
+        """Checks if a player is a GM/Admin."""
+        player = self.players.get(player_id)
+        return player and player.username in ADMIN_USERS # Or check against GM_ACCOUNTS etc.
+
+    def send_game_state_to_all(self):
+        """Sends the current global game state to all players."""
+        state_data = {
+            "type": "game_state_update",
+            "current_game_state": self.current_game_state.value,
+            "game_mode": self.game_mode,
+            "players": {p_id: p.to_dict() for p_id, p in self.players.items()},
+            "npcs": {n_id: n.to_dict() for n_id, n in self.npcs.items()},
+            "chat_history": list(self.chat_history),
+            "combat_state": self.active_combat.to_dict() if self.active_combat else None,
+            "world_data": self.game_world.to_dict() # Send world data too
+        }
+        for player in self.players.values():
+            if player.conn_object:
+                try:
+                    player.conn_object.sendall(json.dumps(state_data).encode('utf-8'))
+                except (socket.error, BrokenPipeError):
+                    print(f"Error sending game state to {player.username}, likely disconnected.")
+                    self.server.remove_client(player.conn_object) # Mark for removal
+
+
+class CombatManager:
+    """
+    Manages a single combat encounter, including initiative, turns, and attack resolution.
+    This acts as a state machine for combat.
+    """
+    def __init__(self, game_manager_instance, initial_combatants: dict[str, Character]):
+        self.game_manager = game_manager_instance
+        self.combatants = initial_combatants # {char_id: Character_object}
+        self.combat_state = CombatState.INITIATIVE_ROLL
+        self.turn_order = [] # List of char_ids in initiative order
+        self.current_turn_index = -1
+        self.current_actor_id = None
+        self.log_buffer = [] # Buffer messages before sending to game_manager for broadcast
+
+    def _log(self, message: str):
+        """Adds a message to the combat log buffer."""
+        self.log_buffer.append(message)
+        print(f"[COMBAT LOG] {message}") # Also print to server console
+
+    def _flush_log(self):
+        """Sends all buffered log messages to the game manager for broadcasting."""
+        # Find the common room ID for this combat. Assumes all combatants are in one room.
+        target_room_id = None
+        if self.combatants:
+            target_room_id = list(self.combatants.values())[0].current_room_id
+
+        if self.log_buffer:
+            for msg in self.log_buffer:
+                self.game_manager.broadcast_message(msg, "combat_log", target_room_id=target_room_id)
+            self.log_buffer.clear()
+
+    def start_initiative_phase(self):
+        """Rolls initiative for all combatants and sets turn order."""
+        self.combat_state = CombatState.INITIATIVE_ROLL
+        initiative_rolls = []
+        self._log("Initiative rolls are being made...")
+        for char_id, char in self.combatants.items():
+            if char.is_conscious:
+                # Assuming initiative is (Savvy + 1d6) - common TTRPG mechanic
+                # Or just a d6 roll if no specific stat is for initiative
+                initiative_dice = char.get_stat_value("Savvy") if "Savvy" in char.stats else 1
+                roll_result, _, _ = roll_dice(initiative_dice)
+                char.initiative = roll_result + random.randint(1, 6) # Add 1d6 to stat value
+                initiative_rolls.append((char.initiative, char.name, char.id))
+                self._log(f"{char.name} rolled initiative: {char.initiative}")
+            else:
+                char.initiative = 0 # Unconscious characters don't get turns
+
+        # Sort by initiative (highest first), then by arbitrary ID for ties
+        self.turn_order = [item[2] for item in sorted(initiative_rolls, key=lambda x: (x[0], x[2]), reverse=True)]
+        self._log(f"Turn order: {', '.join([self.combatants[cid].name for cid in self.turn_order])}")
+        
+        self.current_turn_index = -1 # Reset
+        self.advance_turn() # Start the first turn
+        self._flush_log() # Send logs to clients
+
+    def advance_turn(self):
+        """Moves to the next character's turn in the initiative order."""
+        if not self.turn_order:
+            self.combat_state = CombatState.COMBAT_END
+            self._log("Combatants defeated or fled. Combat ending.")
+            self.game_manager.end_combat()
+            return
+
+        self.current_turn_index = (self.current_turn_index + 1) % len(self.turn_order)
+        self.current_actor_id = self.turn_order[self.current_turn_index]
+        current_actor = self.combatants.get(self.current_actor_id)
+
+        # Check if the current actor is still valid and conscious. If not, try next.
+        # This handles cases where characters might have been defeated or left combat out of turn.
+        if not current_actor or not current_actor.is_conscious:
+            self._log(f"{current_actor.name if current_actor else 'Previous actor (ID: ' + self.current_actor_id + ')'} is incapacitated or left combat. Skipping turn.")
+            # If the current actor is the last one, and they are incapacitated, combat might end.
+            if self.is_combat_over():
+                self.game_manager.end_combat()
+                return
+            else:
+                self.advance_turn() # Skip incapacitated or removed actors
+                return
+        
+        # Apply end-of-turn status effects before acting
+        messages = current_actor.update_status_effects()
+        if messages:
+            for msg in messages:
+                self._log(msg)
+
+        if not current_actor.can_act():
+            self._log(f"{current_actor.name} is {', '.join([e.value for e in current_actor.status_effects.keys()])} and cannot act this turn.")
+            # If the current actor is the last one, and they cannot act, combat might end.
+            if self.is_combat_over():
+                self.game_manager.end_combat()
+                return
+            else:
+                self.advance_turn() # Skip if stunned/dazed
+                return
+
+        self._log(f"It is now {current_actor.name}'s turn.")
+        self.combat_state = CombatState.PLAYER_TURN if current_actor.char_type == "Player" else CombatState.NPC_TURN
+        self.game_manager.send_game_state_to_all() # Update clients on whose turn it is
+
+        if self.combat_state == CombatState.NPC_TURN and self.game_manager.game_mode == "AUTOMATED":
+            # If automated mode and NPC turn, have NPC decide action
+            self._log(f"Automated AI for {current_actor.name} is deciding action...")
+            npc_action = current_actor.decide_action(self.combatants, self.game_manager.game_world) # Pass gameworld reference for potential movement logic
+            if npc_action:
+                self._log(f"{current_actor.name} decided to: {npc_action}")
+                self.handle_combat_action(current_actor.id, npc_action)
+            else:
+                self._log(f"{current_actor.name} has no valid action. Ending turn.")
+                self.advance_turn() # If NPC has no action, proceed
+        elif self.combat_state == CombatState.NPC_TURN and self.game_manager.game_mode == "GM_LED":
+            self._log(f"GM_LED mode: Waiting for GM to direct {current_actor.name}'s action or advance turn.")
+
+        self._flush_log()
+
+    def handle_combat_action(self, actor_id: str, action: dict) -> list[str]:
+        """
+        Processes a combat action from a character (player or NPC).
+        Returns a list of log messages.
+        """
+        actor = self.combatants.get(actor_id)
+        if not actor:
+            return ["Error: Actor not found."]
+
+        if actor_id != self.current_actor_id and not self.game_manager.is_gm(actor_id):
+            return [f"Error: It is not {actor.name}'s turn."]
+        
+        if not actor.can_act():
+            return [f"Error: {actor.name} cannot act due to status effects."]
+
+        action_type = action.get("action_type")
+        skill_name = action.get("skill")
+        target_id = action.get("target_id")
+        target = self.combatants.get(target_id) if target_id else None
+
+        self._log(f"{actor.name} attempts to {action_type} using {skill_name or ''} on {target.name if target else 'no target'}.")
+        
+        log_messages = []
+
+        if action_type == "attack" and skill_name:
+            if not target or not target.is_conscious:
+                log_messages.append("Error: Invalid or unconscious target.")
+                # This should ideally not advance turn if it's an error.
+                return log_messages 
+
+            actor_skill_level = actor.get_skill_level(skill_name)
+            if actor_skill_level == 0 and skill_name != "Bash": # Bash can be used without skill level
+                log_messages.append(f"Error: {actor.name} does not have the skill '{skill_name}'.")
+                return log_messages
+            
+            # Determine stat to use based on skill type (simplified for example)
+            stat_to_use = "Physick"
+            if skill_name in ["Fencing", "Cyber Karate", "Knife", "Spear", "Pistol", "Rifle", "Shotgun", "Heavy Weapon", "Axe", "Bash", "Throw", "Zero-G Combat"]:
+                stat_to_use = "Physick" # Combat skills
+                if skill_name == "Fencing": # Fencing can use Physick or Savvy
+                    # For now, default to Physick; a player would choose.
+                    pass
+
+            # Calculate base dice pool
+            num_dice = actor.get_stat_value(stat_to_use) + actor_skill_level
+            if skill_name == "Bash" and actor_skill_level == 0:
+                num_dice = actor.get_stat_value("Physick") # Base Bash is just Physick if no skill
+
+            # Special case: Rage skill modifier
+            if skill_name == "Rage":
+                num_dice = actor_skill_level * 2 # Roll Rage x 2 instead of Stat + Rage
+
+            # Apply "Next Skill Bonus" if active
+            if StatusEffect.NEXT_SKILL_BONUS in actor.status_effects:
+                num_dice += 1
+                actor.remove_status_effect(StatusEffect.NEXT_SKILL_BONUS)
+                log_messages.append(f"{actor.name} benefits from +1 Success on this roll.")
+
+            # Perform the roll
+            successes, rolls, is_critical_success = roll_dice(num_dice)
+            
+            roll_message = f"{actor.name} rolled {num_dice}d6 for {skill_name} ({rolls}). Successes: {successes}."
+            if is_critical_success:
+                roll_message += " CRITICAL SUCCESS!"
+            log_messages.append(roll_message)
+
+            if successes > 0:
+                damage_amount = successes # Base damage is 1d6 per success from rulebook. Simplified here to successes
+                
+                # Apply weapon damage if applicable (need to parse inventory for weapon properties)
+                weapon_damage_bonus = 0
+                for item in actor.inventory:
+                    if isinstance(item, dict) and item.get("damage"):
+                        damage_match = re.search(r'\+(\d+)\s*Meat Damage', item["damage"])
+                        if damage_match:
+                            weapon_damage_bonus += int(damage_match.group(1))
+                damage_amount += weapon_damage_bonus
+
+                # Apply Sneak Attack bonus if conditions met (e.g., Skulk, unaware target)
+                if skill_name == "Skulk" and action.get("sneak_attack"): # Needs client to indicate this, and server to verify unawareness
+                    damage_amount += parse_dice_formula("1d6") # 2d6 meat damage total if base is 1d6/success
+                    log_messages.append(f"{actor.name} performs a Sneak Attack!")
+
+                # Random hit location or specific one if critical success
+                hit_loc = HitLocation.random()
+                if is_critical_success:
+                    if skill_name == "Pistol":
+                        # In a real game, client would choose. For now, random.
+                        hit_loc = random.choice(list(HitLocation)) 
+                        log_messages.append(f"Pistol Critical: Chosen hit location is {hit_loc.value}.")
+                    elif skill_name == "Fencing":
+                        hit_loc = HitLocation.random() 
+                        log_messages.append(f"Fencing Critical: Gouged {hit_loc.value}!")
+                    
+                damage_log = target.apply_meat_damage(damage_amount, hit_location=hit_loc)
+                log_messages.append(damage_log)
+
+                # --- Handle Critical Success Special Effects ---
+                if is_critical_success:
+                    # +1 Success on next Skill roll is handled by adding StatusEffect.NEXT_SKILL_BONUS earlier
+                    
+                    if skill_name == "Axe":
+                        target.add_status_effect(StatusEffect.ARMOR_CLEAVED, duration=1) 
+                        log_messages.append(f"{target.name}'s armor is cleaved and reduced to 0!")
+                    elif skill_name == "Bash":
+                        target.add_status_effect(StatusEffect.DAZED, duration=1)
+                        log_messages.append(f"{target.name} is dazed, unable to counterattack next turn!")
+                    elif skill_name == "Cyber Karate":
+                        # Causes foes to flee and onlookers to cheer. Complex AI for fleeing.
+                        target.add_status_effect(StatusEffect.IMPRESSED, duration=1) # For descriptive purposes
+                        log_messages.append(f"{actor.name} performs a sick Cyber Karate move, terrifying opponents!")
+                    elif skill_name == "Knife":
+                        # Harm target then leap to nearby foe and stab them (needs another attack action)
+                        # For now, just a descriptive log.
+                        log_messages.append(f"Knife Critical: {actor.name} stabs {target.name} then prepares to leap to another foe.")
+                    elif skill_name == "Rifle":
+                        # Fire again immediately at another target (or same) with no penalty (needs action re-queue)
+                        # For now, just a descriptive log.
+                        log_messages.append(f"Rifle Critical: {actor.name} fires again immediately!")
+                    elif skill_name == "Shotgun":
+                        log_messages.append(f"Shotgun Critical: {target.name} is blown across the room in a dramatic fashion!")
+                        # Implement positional knockback if using a grid system
+                    elif skill_name == "Spear":
+                        target.add_status_effect(StatusEffect.BLEEDING, duration=3) # Example duration
+                        log_messages.append(f"Spear Critical: {target.name} hits an artery and is now bleeding!")
+                    elif skill_name == "Sniper Rifle":
+                        log_messages.append(f"Sniper Rifle Critical: A mysterious stranger appears to aid {actor.name}!")
+                        # This would spawn an allied NPC to perform 1d3 shots
+                        # For now, just a descriptive log.
+            else:
+                log_messages.append(f"{actor.name}'s attack missed or had no effect.")
+
+            # Check if target was defeated after damage
+            if not target.is_conscious:
+                self.game_manager.handle_character_defeat(target.id) # Call defeat handler
+        
+        elif action_type == "move":
+            # In combat, 'move' often means changing position within the combat area, or attempting to flee.
+            # Your move action is currently handled outside combat for room-to-room.
+            # If "Running" or "Levitation" is used in combat, it might grant evasion.
+            if skill_name in ["Running", "Levitation"]:
+                skill_level = actor.get_skill_level(skill_name)
+                num_dice = actor.get_stat_value("Physick") + skill_level
+                successes, rolls, _ = roll_dice(num_dice)
+                log_messages.append(f"{actor.name} attempts to move swiftly using {skill_name} ({successes} successes).")
+                # Could apply temporary evasion bonus or allow moving to safety
+            log_messages.append(f"{actor.name} maneuvers in combat.") # Generic combat move
+        elif action_type == "wait_turn":
+            log_messages.append(f"{actor.name} waits their turn.")
+
+        elif action_type == "use_skill":
+            if not skill_name:
+                log_messages.append("Error: Skill name not specified for 'use_skill' action.")
+                return log_messages
+            
+            actor_skill_level = actor.get_skill_level(skill_name)
+            if actor_skill_level == 0:
+                log_messages.append(f"Error: {actor.name} does not have the skill '{skill_name}'.")
+                return log_messages
+
+            # Apply "Next Skill Bonus" if active (for non-attack skills)
+            if StatusEffect.NEXT_SKILL_BONUS in actor.status_effects:
+                # This should be applied to the specific roll for the skill
+                log_messages.append(f"{actor.name} benefits from +1 Success on this roll (Next Skill Bonus).")
+                actor.remove_status_effect(StatusEffect.NEXT_SKILL_BONUS) # Consume bonus
+
+            if skill_name == "Meditation":
+                num_dice = actor.get_stat_value("Thinkitude") + actor_skill_level
+                successes, rolls, is_critical_success = roll_dice(num_dice)
+                log_messages.append(f"{actor.name} meditates ({rolls}). Successes: {successes}.")
+                if successes > 0:
+                    stress_reduced = 1 # "reduces your Stress by 1"
+                    actor.current_stress = max(0, actor.current_stress - stress_reduced)
+                    log_messages.append(f"{actor.name} reduces Stress by {stress_reduced}. Current Stress: {actor.current_stress}.")
+                    if is_critical_success:
+                        log_messages.append(f"Critical Meditation! {actor.name} feels exceptionally calm.") # Placeholder effect
+                else:
+                    log_messages.append(f"{actor.name}'s meditation provides no relief.")
+            elif skill_name in ["Worship The Consumer", "Worship The Invisible Hand", "Worship The Pig God"]:
+                # Psionics activation is via Meditation/Worship for 30 minutes (abstracted as a skill use here)
+                # Psionics uses are limited by Worship x 2
+                num_psionic_uses = actor_skill_level * 2
+                # This should probably be a dedicated resource, not just a status effect duration
+                # For now, it represents "charges" for Psionics abilities
+                actor.add_status_effect(StatusEffect.PSIONICS_READY, duration=num_psionic_uses) 
+                log_messages.append(f"{actor.name} prepares for Psionics. Can use Psionics {num_psionic_uses} times.")
+                # Divine intervention or sign from deity (Craveability + Worship) once per session
+                if is_critical_success: # Crit success on the skill use itself could grant it
+                    num_dice_divine = actor.get_stat_value("Craveability") + actor_skill_level
+                    divine_successes, _, _ = roll_dice(num_dice_divine)
+                    log_messages.append(f"{actor.name} rolls for Divine Intervention ({divine_successes} successes).")
+                    if divine_successes > 0:
+                        log_messages.append(f"{actor.name} receives a sign from their deity!")
+            # Add more skill specific logic here for other non-combat-attack skills
+            else:
+                log_messages.append(f"Skill '{skill_name}' used by {actor.name}. (Logic for this skill is not fully implemented yet).")
+
+        else:
+            log_messages.append(f"Unknown combat action type: {action_type}.")
+
+        self._flush_log()
+        self.game_manager.send_game_state_to_all() # Update clients after action
+        
+        # After any action, advance the turn
+        self.advance_turn()
+
+        return log_messages
+
+    def is_combat_over(self) -> bool:
+        """Checks if the combat encounter should end."""
+        # Ensure only conscious combatants are counted
+        living_combatants = {cid: char for cid, char in self.combatants.items() if char.is_conscious}
+
+        living_players = any(c.char_type == "Player" for c in living_combatants.values())
+        living_npcs = any(c.char_type == "NPC" for c in living_combatants.values())
+
+        # Combat ends if one side is entirely defeated (no conscious members)
+        if not living_players or not living_npcs:
+            self.combat_state = CombatState.COMBAT_END
+            return True
+        return False
+
+    def get_combat_outcome(self) -> str:
+        """Determines the outcome of the combat."""
+        living_players = any(c.char_type == "Player" and c.is_conscious for c in self.combatants.values())
+        living_npcs = any(c.char_type == "NPC" and c.is_conscious for c in self.combatants.values())
+
+        if living_players and not living_npcs:
+            return "Players are victorious!"
+        elif living_npcs and not living_players:
+            return "All players defeated!"
+        elif not living_players and not living_npcs:
+            return "Mutual destruction! No one survived."
+        else:
+            return "Combat ongoing (GM intervention or stalemate)." # Should not be reached if is_combat_over works
+
+    def to_dict(self):
+        """Converts CombatManager state to a dictionary for serialization."""
+        return {
+            "combat_state": self.combat_state.value,
+            "combatants": {cid: char.to_dict() for cid, char in self.combatants.items()},
+            "turn_order": self.turn_order,
+            "current_turn_index": self.current_turn_index,
+            "current_actor_id": self.current_actor_id
+        }
+    
+    @classmethod
+    def from_dict(cls, data, game_manager_instance):
+        """Creates a CombatManager object from a dictionary."""
+        combatants = {cid: Character.from_dict(c_data) for cid, c_data in data["combatants"].items()}
+        cm = cls(game_manager_instance, combatants)
+        cm.combat_state = CombatState(data["combat_state"])
+        cm.turn_order = data["turn_order"]
+        cm.current_turn_index = data["current_turn_index"]
+        cm.current_actor_id = data["current_actor_id"]
+        return cm
+
+
+# --- Main Server Class ---
+class GameServer:
+    def __init__(self, host, port):
+        self.host = host
+        self.port = port
+        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.connections = {}  # {client_socket: player_id}
+        self.lock = threading.Lock() # For thread-safe access to shared data
+        self.game_manager = GameManager(self)
+        self.last_game_tick_time = time.time() # For periodic updates
+
+        os.makedirs(SAVE_DIR, exist_ok=True)
+        self.load_game_state()
+
+        print(f"{C.GREEN}Server initialized on {self.host}:{self.port}{C.RESET}")
+
+    def load_game_state(self):
+        """Loads the entire game state from a JSON file."""
+        save_path = os.path.join(SAVE_DIR, "game_state.json")
+        if os.path.exists(save_path):
+            try:
+                with open(save_path, 'r') as f:
+                    data = json.load(f)
+                    
+                    # Restore GameWorld first, as characters need rooms
+                    self.game_manager.game_world = GameWorld.from_dict(data.get("world_data", {}))
+
+                    # Restore players
+                    loaded_players = {}
+                    for p_id, p_data in data.get("players", {}).items():
+                        player = Player.from_dict(p_data)
+                        loaded_players[p_id] = player
+                        # Ensure player is added to the room's items list
+                        room = self.game_manager.game_world.get_room(player.current_room_id)
+                        if room: # Check if room exists (it might not if max_rooms was hit during generation)
+                            # Remove old character entries from the room, just in case of stale data
+                            room.items = [item for item in room.items if not (item.get("type") == "character" and item.get("id") == player.id)]
+                            room.items.append({"name": player.name, "id": player.id, "type": "character"})
+                        else:
+                            # If player's room doesn't exist on load, move them to START_ROOM
+                            player.current_room_id = "START_ROOM"
+                            self.game_manager.game_world.get_room("START_ROOM").items.append({"name": player.name, "id": player.id, "type": "character"})
+                            print(f"{C.YELLOW}Player {player.name}'s room not found on load, moved to START_ROOM.{C.RESET}")
+
+                    self.game_manager.players = loaded_players
+
+                    # Restore NPCs
+                    loaded_npcs = {}
+                    for n_id, n_data in data.get("npcs", {}).items():
+                        npc = NPC.from_dict(n_data)
+                        loaded_npcs[n_id] = npc
+                        # Ensure NPC is added to the room's items list
+                        room = self.game_manager.game_world.get_room(npc.current_room_id)
+                        if room:
+                            # Remove old character entries from the room, just in case of stale data
+                            room.items = [item for item in room.items if not (item.get("type") == "character" and item.get("id") == npc.id)]
+                            room.items.append({"name": npc.name, "id": npc.id, "type": "character"})
+                        else:
+                            # If NPC's room doesn't exist on load, move them to START_ROOM
+                            npc.current_room_id = "START_ROOM"
+                            self.game_manager.game_world.get_room("START_ROOM").items.append({"name": npc.name, "id": npc.id, "type": "character"})
+                            print(f"{C.YELLOW}NPC {npc.name}'s room not found on load, moved to START_ROOM.{C.RESET}")
+
+                    self.game_manager.npcs = loaded_npcs
+                    
+                    self.game_manager.current_game_state = GameState(data.get("current_game_state", "LOBBY"))
+                    self.game_manager.game_mode = data.get("game_mode", "AUTOMATED")
+                    self.game_manager.gm_client_id = data.get("gm_client_id")
+                    self.game_manager.chat_history.extend(data.get("chat_history", []))
+
+                    # Restore active combat
+                    combat_data = data.get("combat_state")
+                    if combat_data:
+                        self.game_manager.active_combat = CombatManager.from_dict(combat_data, self.game_manager)
+                        # Ensure combatants in CombatManager refer to actual loaded Character objects
+                        for cid, char_data in combat_data["combatants"].items():
+                            if char_data["char_type"] == "Player" and cid in self.game_manager.players:
+                                self.game_manager.active_combat.combatants[cid] = self.game_manager.players[cid]
+                            elif char_data["char_type"] == "NPC" and cid in self.game_manager.npcs:
+                                self.game_manager.active_combat.combatants[cid] = self.game_manager.npcs[cid]
+
+                print(f"{C.CYAN}Game state loaded successfully.{C.RESET}")
+            except Exception as e:
+                print(f"{C.RED}Error loading game state: {e}{C.RESET}")
+        else:
+            print(f"{C.YELLOW}No saved game state found. Starting fresh.{C.RESET}")
+            # Ensure a start room exists if no save file
+            if not self.game_manager.game_world.get_room("START_ROOM"):
+                self.game_manager.game_world.create_room("START_ROOM", "Central Plaza")
+                self.game_manager.game_world.generate_exits_for_room("START_ROOM")
+
+
+    def save_game_state(self):
+        """Saves the entire game state to a JSON file."""
+        save_path = os.path.join(SAVE_DIR, "game_state.json")
+        try:
+            state_data = {
+                "players": {p_id: p.to_dict() for p_id, p in self.game_manager.players.items()},
+                "npcs": {n_id: n.to_dict() for n_id, n in self.game_manager.npcs.items()},
+                "current_game_state": self.game_manager.current_game_state.value,
+                "game_mode": self.game_manager.game_mode,
+                "gm_client_id": self.game_manager.gm_client_id,
+                "chat_history": list(self.game_manager.chat_history),
+                "combat_state": self.game_manager.active_combat.to_dict() if self.game_manager.active_combat else None,
+                "world_data": self.game_manager.game_world.to_dict()
+            }
+            with open(save_path, 'w') as f:
+                json.dump(state_data, f, indent=4)
+            print(f"{C.GREEN}Game state saved successfully.{C.RESET}")
+        except Exception as e:
+            print(f"{C.RED}Error saving game state: {e}{C.RESET}")
+
+
+    def start(self):
+        """Binds the server socket and listens for connections."""
+        try:
+            self.server_socket.bind((self.host, self.port))
+            self.server_socket.listen(MAX_CONNECTIONS)
+            print(f"{C.BLUE}Listening for connections on {self.host}:{self.port}...{C.RESET}")
+
+            accept_thread = threading.Thread(target=self.accept_connections)
+            accept_thread.daemon = True
+            accept_thread.start()
+
+            # Main server loop for potential periodic tasks or GM input
+            while True:
+                time.sleep(1) # Small delay to prevent busy-waiting for general actions
+
+                # Game Tick for time-based effects (e.g., Renegade Angel ghost stress)
+                current_time = time.time()
+                if current_time - self.last_game_tick_time >= 60: # Tick every 60 seconds (1 minute)
+                    self.last_game_tick_time = current_time
+                    with self.lock:
+                        self.game_manager.game_tick() # Call a game tick method in GameManager
+
+                # Example: If in automated NPC turn and GM not overriding, trigger NPC action
+                if self.game_manager.active_combat and \
+                   self.game_manager.active_combat.combat_state == CombatState.NPC_TURN and \
+                   self.game_manager.game_mode == "AUTOMATED" and \
+                   self.game_manager.active_combat.current_actor_id:
+                   
+                   current_actor = self.game_manager.active_combat.combatants.get(self.game_manager.active_combat.current_actor_id)
+                   if current_actor and current_actor.char_type == "NPC":
+                       # This will be handled by advance_turn now, so no direct call needed here.
+                       # This loop primarily ensures the server remains active for GM commands or future periodic events.
+                       pass 
+
+        except socket.error as e:
+            print(f"{C.RED}Server error: {e}{C.RESET}")
+        finally:
+            self.stop()
+
+    def accept_connections(self):
+        """Continuously accepts new client connections."""
+        while True:
+            try:
+                client_socket, addr = self.server_socket.accept()
+                print(f"{C.MAGENTA}New connection from {addr}{C.RESET}")
+                
+                # Assign a unique ID for the player. Can use UUID in real app.
+                player_id = secrets.token_hex(8) 
+                
+                with self.lock:
+                    self.connections[client_socket] = player_id
+
+                # Start a new thread to handle the client
+                client_handler = threading.Thread(target=self.handle_client, args=(client_socket, player_id))
+                client_handler.daemon = True
+                client_handler.start()
+
+            except socket.error as e:
+                print(f"{C.RED}Error accepting connection: {e}{C.RESET}")
+                break # Break out of loop if server socket errors
+
+    def handle_client(self, client_socket: socket.socket, player_id: str):
+        """Handles communication with a single client."""
+        player_username = None
+        try:
+            # First message from client should be a login/username
+            initial_data = client_socket.recv(4096).decode('utf-8')
+            login_info = json.loads(initial_data)
+            
+            if login_info.get("type") == "login" and "username" in login_info:
+                player_username = login_info["username"]
+                print(f"{C.CYAN}Player '{player_username}' (ID: {player_id}) connected.{C.RESET}")
+                # Now add/reconnect the player in the game manager
+                with self.lock:
+                    self.game_manager.add_player(player_id, player_username, client_socket)
+            else:
+                self.game_manager.send_to_player(player_id, {"type": "error", "message": "Invalid login message."})
+                raise ValueError("Initial message was not a login.")
+
+            while True:
+                data = client_socket.recv(4096).decode('utf-8')
+                if not data:
+                    print(f"{C.YELLOW}Client {player_username} (ID: {player_id}) disconnected.{C.RESET}")
+                    break
+
+                messages = data.strip().split('\n') # Handle multiple JSONs in one recv
+                for msg_str in messages:
+                    if not msg_str:
+                        continue
+                    try:
+                        message = json.loads(msg_str)
+                        with self.lock:
+                            self.process_client_message(player_id, message)
+                    except json.JSONDecodeError:
+                        print(f"{C.RED}Received malformed JSON from {player_username}: {msg_str}{C.RESET}")
+                        self.game_manager.send_to_player(player_id, {"type": "error", "message": "Malformed JSON received."})
+                    except Exception as e:
+                        print(f"{C.RED}Error processing message from {player_username}: {e}, Message: {msg_str}{C.RESET}")
+                        self.game_manager.send_to_player(player_id, {"type": "error", "message": f"Server error processing your request: {e}"})
+
+        except (socket.error, BrokenPipeError, ValueError) as e:
+            print(f"{C.RED}Client {player_username} (ID: {player_id}) connection error: {e}{C.RESET}")
+        finally:
+            self.remove_client(client_socket)
+
+
+    def process_client_message(self, player_id: str, message: dict):
+        """Handles incoming messages from clients and routes them."""
+        msg_type = message.get("type")
+        
+        if msg_type == "chat":
+            chat_message = message.get("message")
+            player = self.game_manager.players.get(player_id)
+            if player and chat_message:
+                full_chat_msg = f"{player.username}: {chat_message}"
+                self.game_manager.chat_history.append(full_chat_msg)
+                self.game_manager.broadcast_message(full_chat_msg, "chat", target_room_id=player.current_room_id) # Chat only in room
+        elif msg_type == "action":
+            self.game_manager.process_client_action(player_id, message.get("action", {}))
+        elif msg_type == "admin_command":
+            if self.game_manager.is_gm(player_id) and message.get("pin") == ADMIN_PIN:
+                self.handle_admin_command(player_id, message.get("command", {}))
+            else:
+                self.game_manager.send_to_player(player_id, {"type": "error", "message": "Unauthorized admin command."})
+        else:
+            self.game_manager.send_to_player(player_id, {"type": "error", "message": "Unknown message type."})
+        
+        self.save_game_state() # Save state after every significant action
+
+    def handle_admin_command(self, gm_id: str, command: dict):
+        """Processes commands from a GM client."""
+        cmd_type = command.get("type")
+        log_messages = []
+        gm_player = self.game_manager.players.get(gm_id)
+        gm_name = gm_player.name if gm_player else "GM"
+
+        if cmd_type == "set_game_mode":
+            new_mode = command.get("mode")
+            if new_mode in ["AUTOMATED", "GM_LED"]:
+                self.game_manager.game_mode = new_mode
+                log_messages.append(f"{gm_name} set game mode to {new_mode}.")
+                if new_mode == "GM_LED":
+                    self.game_manager.gm_client_id = gm_id # Designate this GM
+                else:
+                    self.game_manager.gm_client_id = None
+            else:
+                log_messages.append("Invalid game mode specified.")
+        elif cmd_type == "advance_combat_turn" and self.game_manager.active_combat:
+            if self.game_manager.game_mode == "GM_LED":
+                log_messages.append(f"{gm_name} manually advancing combat turn.")
+                self.game_manager.active_combat.advance_turn()
+            else:
+                log_messages.append("Cannot manually advance turn in AUTOMATED mode.")
+        elif cmd_type == "spawn_npc":
+            npc_name = command.get("name", "Unnamed NPC")
+            npc_archetype = command.get("archetype")
+            spawn_room_id = command.get("room_id", gm_player.current_room_id if gm_player else "START_ROOM") # Default to GM's room or start room
+
+            if npc_archetype and npc_archetype in NPC_ARCHETYPES:
+                arch_data = NPC_ARCHETYPES[npc_archetype]
+                stats = arch_data["stats"].copy()
+                skills = {s: random.randint(1, 2) for s in random.sample(arch_data["skills"], k=min(len(arch_data["skills"]), random.randint(1, 2)))}
+                armor = arch_data.get("armor", 0)
+                meat_damage_max = arch_data.get("meat_damage_max", 10)
+                behavior_type = arch_data.get("behavior_type", "passive_hostile")
+                
+                new_npc = self.game_manager.add_npc(npc_name, stats, skills, armor, meat_damage_max, current_room_id=spawn_room_id, behavior_type=behavior_type)
+                log_messages.append(f"{gm_name} spawned a new {npc_archetype} named '{new_npc.name}' in room {new_npc.current_room_id}.")
+            else:
+                log_messages.append(f"Invalid NPC archetype '{npc_archetype}'.")
+
+        elif cmd_type == "set_char_stat":
+            char_id = command.get("char_id")
+            stat_name = command.get("stat")
+            value = command.get("value")
+            char = self.game_manager.players.get(char_id) or self.game_manager.npcs.get(char_id)
+            if char and stat_name in char.stats and isinstance(value, int):
+                char.stats[stat_name] = value
+                log_messages.append(f"{gm_name} set {char.name}'s {stat_name} to {value}.")
+            else:
+                log_messages.append("Invalid character ID, stat, or value for set_char_stat.")
+        elif cmd_type == "start_combat": # GM can force start combat with specific participants
+            target_ids = command.get("target_ids", [])
+            combatants = {}
+            for char_id in target_ids:
+                if char_id in self.game_manager.players:
+                    combatants[char_id] = self.game_manager.players[char_id]
+                elif char_id in self.game_manager.npcs:
+                    combatants[char_id] = self.game_manager.npcs[char_id]
+            if combatants:
+                self.game_manager.start_combat(list(combatants.values()))
+                log_messages.append(f"{gm_name} initiated combat with: {', '.join([c.name for c in combatants.values()])}")
+            else:
+                log_messages.append("No valid combatants found for GM's start_combat command.")
+        elif cmd_type == "teleport":
+            char_id = command.get("char_id")
+            destination_room_id = command.get("room_id")
+            char_to_teleport = self.game_manager.players.get(char_id) or self.game_manager.npcs.get(char_id)
+            destination_room = self.game_manager.game_world.get_room(destination_room_id)
+            
+            if char_to_teleport and destination_room:
+                # Remove from old room's item list
+                old_room = self.game_manager.game_world.get_room(char_to_teleport.current_room_id)
+                if old_room:
+                    old_room.items = [item for item in old_room.items if not (item.get("type") == "character" and item.get("id") == char_to_teleport.id)]
+                    self.game_manager.broadcast_message(f"{char_to_teleport.name} vanishes in a puff of smoke!", "room_exit", target_room_id=old_room.id)
+
+                char_to_teleport.current_room_id = destination_room_id
+                destination_room.items.append({"name": char_to_teleport.name, "id": char_to_teleport.id, "type": "character"})
+                self.game_manager.broadcast_message(f"{char_to_teleport.name} suddenly appears!", "room_entry", target_room_id=destination_room.id)
+                log_messages.append(f"{gm_name} teleported {char_to_teleport.name} to {destination_room.name}.")
+                if char_to_teleport.char_type == "Player":
+                    self.game_manager.describe_room_to_player(char_to_teleport.id) # Describe new room to teleported player
+            else:
+                log_messages.append("Invalid character ID or destination room ID for teleport.")
+        elif cmd_type == "set_room_resurrection_status":
+            room_id = command.get("room_id")
+            status = command.get("status") # boolean
+            room = self.game_manager.game_world.get_room(room_id)
+            if room and isinstance(status, bool):
+                room.no_resurrection_zone = status
+                log_messages.append(f"{gm_name} set room {room.name} (ID: {room_id}) no_resurrection_zone status to {status}.")
+            else:
+                log_messages.append("Invalid room ID or status for set_room_resurrection_status.")
+
+        else:
+            log_messages.append(f"Unknown admin command: {cmd_type}.")
+        
+        for msg in log_messages:
+            self.game_manager.broadcast_message(msg, "admin_log")
+        self.game_manager.send_game_state_to_all() # Update all clients after admin command
+
+
+    def remove_client(self, client_socket: socket.socket):
+        """Removes a client from active connections."""
+        with self.lock:
+            player_id = self.connections.pop(client_socket, None)
+            if player_id:
+                self.game_manager.remove_player(player_id)
+            client_socket.close()
+
+    def stop(self):
+        """Closes the server socket and cleans up."""
+        print(f"{C.RED}Shutting down server...{C.RESET}")
+        self.server_socket.close()
+        self.save_game_state() # Ensure state is saved on shutdown
+        print(f"{C.RED}Server stopped.{C.RESET}")
+
+# --- Main execution block ---
+if __name__ == "__main__":
+    server = GameServer(HOST, PORT)
+    try:
+        server.start()
+    except KeyboardInterrupt:
+        print(f"{C.RED}Server interrupted by user (Ctrl+C).{C.RESET}")
+    finally:
+        server.stop()
